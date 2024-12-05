@@ -6,85 +6,236 @@ from dash.dependencies import Input, Output, State, ALL
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
+import json
+from pathlib import Path
 
 class BioreactorDashboard:
     def __init__(self):
         self.app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+        self.settings_file = Path("feed_settings.json")
+        self.settings = self.load_settings()
         self.setup_layout()
         self.setup_callbacks()
         
+    def load_settings(self) -> Dict:
+        """Load settings from JSON file or create with defaults."""
+        default_settings = {
+            "control_feed": {
+                "glucose_concentration": 500.0,
+                "toc_concentration": 200.0,
+                "default_volume": 0.1,
+                "components": {
+                    "glucose": 500.0,
+                    "yeast_extract": 10.0,
+                    "minerals": 5.0
+                }
+            },
+            "experimental_feed": {
+                "toc_concentration": 200.0,
+                "default_volume": 0.1,
+                "components": {
+                    "carbon_source": 200.0,
+                    "nitrogen_source": 20.0,
+                    "minerals": 5.0
+                }
+            }
+        }
+        
+        if self.settings_file.exists():
+            with open(self.settings_file, 'r') as f:
+                return json.load(f)
+        return default_settings
+        
+    def save_settings(self):
+        """Save current settings to JSON file."""
+        with open(self.settings_file, 'w') as f:
+            json.dump(self.settings, f, indent=4)
+    
     def setup_layout(self):
         """Create the dashboard layout."""
         self.app.layout = dbc.Container([
-            dbc.Row([
-                dbc.Col(html.H1("Bioreactor Monitoring System"), width=12)
-            ]),
-            
-            # Feed Configuration Section
-            dbc.Row([
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardHeader("Feed Configuration"),
-                        dbc.CardBody([
-                            html.Div([
-                                html.Label("Feed Type"),
-                                dbc.Select(
-                                    id="feed-type-select",
-                                    options=[
-                                        {"label": "Control Feed", "value": "control"},
-                                        {"label": "Test Feed", "value": "test"}
-                                    ],
-                                    className="mb-3"
-                                ),
-                                html.Label("Test Feed TOC (mg/L)"),
-                                dbc.Input(
-                                    id="toc-input",
-                                    type="number",
-                                    placeholder="Enter TOC value",
-                                    className="mb-3"
-                                ),
-                                html.Label("Glucose Solution Concentration (g/L)"),
-                                dbc.Input(
-                                    id="glucose-conc-input",
-                                    type="number",
-                                    placeholder="Enter glucose concentration",
-                                    className="mb-3"
-                                ),
-                                dbc.Button(
-                                    "Update Feed Parameters",
-                                    id="update-feed-btn",
-                                    color="primary",
-                                    className="mt-2"
-                                )
+            dbc.Tabs([
+                # Main Monitoring Tab
+                dbc.Tab([
+                    dbc.Row([
+                        dbc.Col(html.H1("Bioreactor Monitoring System"), width=12)
+                    ]),
+                    # Feed Configuration Section
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Quick Feed Actions"),
+                                dbc.CardBody([
+                                    html.Div([
+                                        html.Label("Feed Type"),
+                                        dbc.Select(
+                                            id="feed-type-select",
+                                            options=[
+                                                {"label": "Control Feed", "value": "control"},
+                                                {"label": "Experimental Feed", "value": "experimental"}
+                                            ],
+                                            className="mb-3"
+                                        ),
+                                        dbc.Button(
+                                            "Add Feed Event",
+                                            id="add-feed-btn",
+                                            color="primary",
+                                            className="mt-2"
+                                        )
+                                    ])
+                                ])
                             ])
-                        ])
+                        ], width=3),
+                        
+                        # Current Metrics Display
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Current Process Values"),
+                                dbc.CardBody(id="current-metrics")
+                            ])
+                        ], width=9)
+                    ], className="mb-4"),
+                    
+                    # Graphs Section
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Process Monitoring"),
+                                dbc.CardBody([
+                                    dcc.Graph(id='main-graph'),
+                                    dcc.Interval(
+                                        id='graph-update',
+                                        interval=5000,
+                                        n_intervals=0
+                                    )
+                                ])
+                            ])
+                        ], width=12)
                     ])
-                ], width=3),
+                ], label="Monitoring"),
                 
-                # Current Metrics Display
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardHeader("Current Process Values"),
-                        dbc.CardBody(id="current-metrics")
+                # Settings Tab
+                dbc.Tab([
+                    dbc.Row([
+                        dbc.Col(html.H2("Feed Settings"), width=12, className="mb-4")
+                    ]),
+                    
+                    # Control Feed Settings
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Control Feed Settings"),
+                                dbc.CardBody([
+                                    html.Div([
+                                        html.Label("Glucose Concentration (g/L)"),
+                                        dbc.Input(
+                                            id="control-glucose-conc",
+                                            type="number",
+                                            value=self.settings["control_feed"]["glucose_concentration"],
+                                            className="mb-3"
+                                        ),
+                                        html.Label("TOC Concentration (g/L)"),
+                                        dbc.Input(
+                                            id="control-toc-conc",
+                                            type="number",
+                                            value=self.settings["control_feed"]["toc_concentration"],
+                                            className="mb-3"
+                                        ),
+                                        html.Label("Default Volume (L)"),
+                                        dbc.Input(
+                                            id="control-volume",
+                                            type="number",
+                                            value=self.settings["control_feed"]["default_volume"],
+                                            className="mb-3"
+                                        ),
+                                        html.H5("Components", className="mt-4"),
+                                        html.Label("Glucose (g/L)"),
+                                        dbc.Input(
+                                            id="control-comp-glucose",
+                                            type="number",
+                                            value=self.settings["control_feed"]["components"]["glucose"],
+                                            className="mb-3"
+                                        ),
+                                        html.Label("Yeast Extract (g/L)"),
+                                        dbc.Input(
+                                            id="control-comp-yeast",
+                                            type="number",
+                                            value=self.settings["control_feed"]["components"]["yeast_extract"],
+                                            className="mb-3"
+                                        ),
+                                        html.Label("Minerals (g/L)"),
+                                        dbc.Input(
+                                            id="control-comp-minerals",
+                                            type="number",
+                                            value=self.settings["control_feed"]["components"]["minerals"],
+                                            className="mb-3"
+                                        )
+                                    ])
+                                ])
+                            ])
+                        ], width=6),
+                        
+                        # Experimental Feed Settings
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Experimental Feed Settings"),
+                                dbc.CardBody([
+                                    html.Div([
+                                        html.Label("TOC Concentration (g/L)"),
+                                        dbc.Input(
+                                            id="exp-toc-conc",
+                                            type="number",
+                                            value=self.settings["experimental_feed"]["toc_concentration"],
+                                            className="mb-3"
+                                        ),
+                                        html.Label("Default Volume (L)"),
+                                        dbc.Input(
+                                            id="exp-volume",
+                                            type="number",
+                                            value=self.settings["experimental_feed"]["default_volume"],
+                                            className="mb-3"
+                                        ),
+                                        html.H5("Components", className="mt-4"),
+                                        html.Label("Carbon Source (g/L)"),
+                                        dbc.Input(
+                                            id="exp-comp-carbon",
+                                            type="number",
+                                            value=self.settings["experimental_feed"]["components"]["carbon_source"],
+                                            className="mb-3"
+                                        ),
+                                        html.Label("Nitrogen Source (g/L)"),
+                                        dbc.Input(
+                                            id="exp-comp-nitrogen",
+                                            type="number",
+                                            value=self.settings["experimental_feed"]["components"]["nitrogen_source"],
+                                            className="mb-3"
+                                        ),
+                                        html.Label("Minerals (g/L)"),
+                                        dbc.Input(
+                                            id="exp-comp-minerals",
+                                            type="number",
+                                            value=self.settings["experimental_feed"]["components"]["minerals"],
+                                            className="mb-3"
+                                        )
+                                    ])
+                                ])
+                            ])
+                        ], width=6)
+                    ]),
+                    
+                    # Save Settings Button
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Button(
+                                "Save Settings",
+                                id="save-settings-btn",
+                                color="success",
+                                className="mt-4"
+                            ),
+                            html.Div(id="settings-save-status", className="mt-2")
+                        ], width=12)
                     ])
-                ], width=9)
-            ], className="mb-4"),
-            
-            # Graphs Section
-            dbc.Row([
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardHeader("Process Monitoring"),
-                        dbc.CardBody([
-                            dcc.Graph(id='main-graph'),
-                            dcc.Interval(
-                                id='graph-update',
-                                interval=5000,  # 5 seconds
-                                n_intervals=0
-                            )
-                        ])
-                    ])
-                ], width=12)
+                ], label="Settings")
             ])
         ], fluid=True)
         
@@ -251,6 +402,55 @@ class BioreactorDashboard:
             # Here you would save the feed parameters to your system
             # For now, just disable the feed type selection after parameters are set
             return True
+        
+        @self.app.callback(
+            Output("settings-save-status", "children"),
+            [Input("save-settings-btn", "n_clicks")],
+            [State("control-glucose-conc", "value"),
+             State("control-toc-conc", "value"),
+             State("control-volume", "value"),
+             State("control-comp-glucose", "value"),
+             State("control-comp-yeast", "value"),
+             State("control-comp-minerals", "value"),
+             State("exp-toc-conc", "value"),
+             State("exp-volume", "value"),
+             State("exp-comp-carbon", "value"),
+             State("exp-comp-nitrogen", "value"),
+             State("exp-comp-minerals", "value")]
+        )
+        def save_settings_callback(n_clicks, *values):
+            if not n_clicks:
+                return ""
+                
+            try:
+                # Update control feed settings
+                self.settings["control_feed"].update({
+                    "glucose_concentration": values[0],
+                    "toc_concentration": values[1],
+                    "default_volume": values[2],
+                    "components": {
+                        "glucose": values[3],
+                        "yeast_extract": values[4],
+                        "minerals": values[5]
+                    }
+                })
+                
+                # Update experimental feed settings
+                self.settings["experimental_feed"].update({
+                    "toc_concentration": values[6],
+                    "default_volume": values[7],
+                    "components": {
+                        "carbon_source": values[8],
+                        "nitrogen_source": values[9],
+                        "minerals": values[10]
+                    }
+                })
+                
+                self.save_settings()
+                return html.Div("Settings saved successfully!", style={"color": "green"})
+                
+            except Exception as e:
+                return html.Div(f"Error saving settings: {str(e)}", style={"color": "red"})
     
     def run_server(self, debug=True, port=8050):
         """Start the Dash server."""

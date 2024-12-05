@@ -1,37 +1,31 @@
 import os
 from typing import Dict, List, Optional
 import pandas as pd
+import pyodbc
 from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
+import urllib
 
 class DatabaseConnection:
     def __init__(self):
-        load_dotenv()
         self.engine = self._create_db_engine()
         
     def _create_db_engine(self):
-        """Create SQLAlchemy engine from environment variables."""
-        db_type = os.getenv('DB_TYPE', 'sqlite')  # Default to SQLite if not specified
+        """Create SQLAlchemy engine for SQL Server connection."""
+        server = 'v-rot-sql04'
+        database = 'DBReactor'
+        username = 'dbreactor'
+        password = 'reactorscion'
         
-        if db_type == 'sqlite':
-            # Use SQLite as default/fallback
-            db_path = os.getenv('DB_PATH', 'bioreactor.db')
-            return create_engine(f'sqlite:///{db_path}')
-        else:
-            # PostgreSQL or other database types
-            db_params = {
-                'host': os.getenv('DB_HOST'),
-                'database': os.getenv('DB_NAME'),
-                'user': os.getenv('DB_USER'),
-                'password': os.getenv('DB_PASSWORD')
-            }
-            
-            if db_type == 'postgresql':
-                connection_string = f"postgresql://{db_params['user']}:{db_params['password']}@{db_params['host']}/{db_params['database']}"
-            else:
-                raise ValueError(f"Unsupported database type: {db_type}")
-                
-            return create_engine(connection_string)
+        # Create the connection string
+        params = urllib.parse.quote_plus(
+            'DRIVER={SQL Server};'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={username};'
+            f'PWD={password}'
+        )
+        
+        return create_engine(f'mssql+pyodbc:///?odbc_connect={params}')
     
     def initialize_database(self):
         """Initialize database tables if they don't exist."""
@@ -61,17 +55,26 @@ class DatabaseConnection:
         query = text("""
             SELECT 
                 DateTime,
+                -- MFC1 values
                 LB_MFC_1_SP,
                 LB_MFC_1_PV,
+                -- Reactor 1 DO
                 Reactor_1_DO_Value_PPM,
                 Reactor_1_DO_T_Value,
+                -- Reactor 1 pH
                 Reactor_1_PH_Value,
                 Reactor_1_PH_T_Value,
+                -- Weights
                 R1_Weight_Bal,
+                R2_Weight_Bal,
+                -- Pump 1 settings
                 LB_Perastaltic_P_1,
                 R1_Perastaltic_1_Time,
-                R1_Perastaltic_1_Time_off
-            FROM process_data
+                R1_Perastaltic_1_Time_off,
+                -- Speed and torque
+                Reactor_1_Speed_RPM,
+                Reactor_1_Torque_Real
+            FROM ReactorData
             WHERE DateTime >= DATEADD(minute, -:minutes, GETDATE())
             ORDER BY DateTime ASC
         """)
@@ -88,17 +91,26 @@ class DatabaseConnection:
         """Get the most recent values for all monitored parameters."""
         query = text("""
             SELECT TOP 1
+                -- MFC1 values
                 LB_MFC_1_SP,
                 LB_MFC_1_PV,
+                -- Reactor 1 DO
                 Reactor_1_DO_Value_PPM,
                 Reactor_1_DO_T_Value,
+                -- Reactor 1 pH
                 Reactor_1_PH_Value,
                 Reactor_1_PH_T_Value,
+                -- Weights
                 R1_Weight_Bal,
+                R2_Weight_Bal,
+                -- Pump 1 settings
                 LB_Perastaltic_P_1,
                 R1_Perastaltic_1_Time,
-                R1_Perastaltic_1_Time_off
-            FROM process_data
+                R1_Perastaltic_1_Time_off,
+                -- Speed and torque
+                Reactor_1_Speed_RPM,
+                Reactor_1_Torque_Real
+            FROM ReactorData
             ORDER BY DateTime DESC
         """)
         
@@ -119,11 +131,18 @@ class DatabaseConnection:
                             'value': result.Reactor_1_PH_Value,
                             'temp': result.Reactor_1_PH_T_Value
                         },
-                        'weight': result.R1_Weight_Bal,
+                        'weights': {
+                            'r1': result.R1_Weight_Bal,
+                            'r2': result.R2_Weight_Bal
+                        },
                         'pump': {
                             'status': result.LB_Perastaltic_P_1,
                             'time_on': result.R1_Perastaltic_1_Time,
                             'time_off': result.R1_Perastaltic_1_Time_off
+                        },
+                        'operation': {
+                            'speed': result.Reactor_1_Speed_RPM,
+                            'torque': result.Reactor_1_Torque_Real
                         }
                     }
                 return {}
