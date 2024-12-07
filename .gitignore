@@ -25,8 +25,9 @@ wheels/
 *.egg
 
 # Virtual Environment
-venv/
+.venv
 env/
+venv/
 ENV/
 
 # IDE specific files
@@ -42,3 +43,82 @@ logs/
 src/analysis/__pycache__/metrics.cpython-313.pyc
 src/visualization/__pycache__/dashboard.cpython-313.pyc
 .env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+
+# Logs and Databases
+*.log
+logs/
+*.db
+data/*.db
+data/dashboard.db
+data/feed_events.json
+
+# Local configuration
+.env
+*.local
+config.local.json
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+coverage.xml
+*.cover
+
+# Documentation
+docs/_build/
+site/
+
+# Operating System
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+*.swp
+
+# Project Specific
+feed_settings.local.json
+temp/
+output/
+results/
+*.pyc
+src/**/__pycache__/
+src/**/*.pyc

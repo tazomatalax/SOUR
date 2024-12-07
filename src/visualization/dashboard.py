@@ -11,6 +11,7 @@ import jsonschema
 from pathlib import Path
 import logging
 from data.feed_events import FeedEventLogger
+from analysis.feed_detection import FeedDetector
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class BioreactorDashboard:
         self.settings_file = Path("feed_settings.json")
         self.settings = self.load_settings()
         self.feed_logger = FeedEventLogger()
+        self.feed_detector = FeedDetector()
         self.setup_layout()
         self.setup_callbacks()
         
@@ -131,6 +133,18 @@ class BioreactorDashboard:
                                 dbc.CardBody(id="current-metrics")
                             ])
                         ], width=9)
+                    ], className="mb-4"),
+                    
+                    # Auto-detection status section
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Automatic Feed Detection"),
+                                dbc.CardBody([
+                                    html.Div(id="auto-feed-status")
+                                ])
+                            ])
+                        ], width=12)
                     ], className="mb-4"),
                     
                     # Graphs Section
@@ -341,42 +355,75 @@ class BioreactorDashboard:
     def setup_callbacks(self):
         """Setup Dash callbacks for interactivity."""
         @self.app.callback(
-            Output('current-metrics', 'children'),
+            [Output('current-metrics', 'children'),
+             Output('auto-feed-status', 'children')],
             [Input('graph-update', 'n_intervals')]
         )
-        def update_metrics(n):
-            # This would fetch current values from SQL database
-            return html.Div([
-                dbc.Row([
-                    dbc.Col([
-                        html.H5("MFC1"),
-                        html.P(f"Set Point: -- L/min"),
-                        html.P(f"Process Value: -- L/min")
-                    ], width=4),
-                    dbc.Col([
-                        html.H5("DO"),
-                        html.P(f"Value: -- mg/L"),
-                        html.P(f"Temperature: -- °C")
-                    ], width=4),
-                    dbc.Col([
-                        html.H5("pH"),
-                        html.P(f"Value: --"),
-                        html.P(f"Temperature: -- °C")
-                    ], width=4)
-                ], className="mb-3"),
-                dbc.Row([
-                    dbc.Col([
-                        html.H5("Feed Status"),
-                        html.P(f"Pump Time On: -- s"),
-                        html.P(f"Pump Time Off: -- s")
-                    ], width=4),
-                    dbc.Col([
-                        html.H5("Weight"),
-                        html.P(f"Current: -- g")
-                    ], width=4)
-                ])
-            ])
-
+        def update_metrics_and_detect_feeds(n):
+            # Get latest data
+            try:
+                with DatabaseConnection() as db:
+                    current_data = db.get_latest_data(minutes=5)
+                
+                if not current_data.empty:
+                    # Detect feed events
+                    detected_events = self.feed_detector.detect_feed_events(current_data)
+                    
+                    # Create feed status message
+                    if detected_events:
+                        latest_event = detected_events[-1]
+                        feed_status = html.Div([
+                            html.H5("🔄 Feed Detected!", className="text-success"),
+                            html.P([
+                                f"Time: {pd.to_datetime(latest_event['timestamp']).strftime('%H:%M:%S')}", html.Br(),
+                                f"Type: {latest_event['feed_type']}", html.Br(),
+                                f"Volume: {latest_event['volume']*1000:.0f}mL"
+                            ])
+                        ])
+                    else:
+                        feed_status = html.Div("No recent feed events detected", className="text-muted")
+                    
+                    # Create metrics display
+                    metrics = html.Div([
+                        dbc.Row([
+                            dbc.Col([
+                                html.H5("MFC1"),
+                                html.P(f"Set Point: {current_data['LB_MFC_1_SP'].iloc[-1]:.1f} L/min"),
+                                html.P(f"Process Value: {current_data['LB_MFC_1_PV'].iloc[-1]:.1f} L/min")
+                            ], width=4),
+                            dbc.Col([
+                                html.H5("DO"),
+                                html.P(f"Value: {current_data['Reactor_1_DO_Value_PPM'].iloc[-1]:.1f} mg/L"),
+                                html.P(f"Temperature: {current_data['Reactor_1_DO_T_Value'].iloc[-1]:.1f}°C")
+                            ], width=4),
+                            dbc.Col([
+                                html.H5("pH"),
+                                html.P(f"Value: {current_data['Reactor_1_PH_Value'].iloc[-1]:.2f}"),
+                                html.P(f"Temperature: {current_data['Reactor_1_PH_T_Value'].iloc[-1]:.1f}°C")
+                            ], width=4)
+                        ], className="mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.H5("Feed Status"),
+                                html.P(f"Pump Time On: {current_data['R1_Perastaltic_1_Time'].iloc[-1]:.0f}s"),
+                                html.P(f"Pump Time Off: {current_data['R1_Perastaltic_1_Time_off'].iloc[-1]:.0f}s")
+                            ], width=4),
+                            dbc.Col([
+                                html.H5("Weight"),
+                                html.P(f"Reactor: {current_data['R1_Weight_Bal'].iloc[-1]:.1f}g"),
+                                html.P(f"Feed Bottle: {current_data['R2_Weight_Bal'].iloc[-1]:.1f}g")
+                            ], width=4)
+                        ])
+                    ])
+                    
+                    return metrics, feed_status
+                    
+                return html.Div("No data available"), html.Div("Feed detection unavailable", className="text-muted")
+                
+            except Exception as e:
+                logger.error(f"Error updating metrics and detecting feeds: {e}")
+                return html.Div(f"Error: {str(e)}"), html.Div("Feed detection error", className="text-danger")
+        
         @self.app.callback(
             Output('main-graph', 'figure'),
             [Input('graph-update', 'n_intervals')]
