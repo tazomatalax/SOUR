@@ -2,30 +2,66 @@ import os
 from typing import Dict, List, Optional
 import pandas as pd
 import pyodbc
+from dotenv import load_dotenv
+import logging
 from sqlalchemy import create_engine, text
 import urllib
 from pathlib import Path
 
+# Load environment variables
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
 class DatabaseConnection:
     def __init__(self):
+        """Initialize database connections using environment variables."""
+        # MS SQL Server connection string components
+        self.server = os.getenv('MSSQL_SERVER', 'localhost')
+        self.database = os.getenv('MSSQL_DATABASE', 'SOUR')
+        self.username = os.getenv('MSSQL_USERNAME', 'sa')
+        self.password = os.getenv('MSSQL_PASSWORD', '')
+        self.driver = os.getenv('MSSQL_DRIVER', '{ODBC Driver 17 for SQL Server}')
+        self.port = os.getenv('MSSQL_PORT', '1433')
+        self.trusted_connection = os.getenv('MSSQL_TRUSTED_CONNECTION', 'yes')
+        
+        self.conn_str = self._build_connection_string()
         self.reactor_engine = self._create_reactor_engine()
         self.dashboard_engine = self._create_dashboard_engine()
         self.initialize_dashboard_database()
+        self._test_connection()
         
+    def _build_connection_string(self) -> str:
+        """Build the connection string using environment variables."""
+        conn_str = (
+            f"DRIVER={self.driver};"
+            f"SERVER={self.server},{self.port};"
+            f"DATABASE={self.database};"
+        )
+        
+        # Use trusted connection if specified, otherwise use username/password
+        if self.trusted_connection.lower() == 'yes':
+            conn_str += "Trusted_Connection=yes;"
+        else:
+            conn_str += f"UID={self.username};PWD={self.password};"
+        
+        return conn_str
+        
+    def _test_connection(self):
+        """Test the database connection and log the result."""
+        try:
+            with pyodbc.connect(self.conn_str) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT @@version")
+                    version = cursor.fetchone()[0]
+                    logger.info(f"Successfully connected to MS SQL Server: {version}")
+        except Exception as e:
+            logger.error(f"Failed to connect to database: {e}")
+            raise
+
     def _create_reactor_engine(self):
         """Create SQLAlchemy engine for read-only Reactor database connection."""
-        server = os.getenv('REACTOR_DB_SERVER')
-        database = os.getenv('REACTOR_DB_NAME')
-        username = os.getenv('REACTOR_DB_USER')
-        password = os.getenv('REACTOR_DB_PASSWORD')
-        
-        params = urllib.parse.quote_plus(
-            'DRIVER={SQL Server};'
-            f'SERVER={server};'
-            f'DATABASE={database};'
-            f'UID={username};'
-            f'PWD={password}'
-        )
+        params = urllib.parse.quote_plus(self.conn_str)
         
         return create_engine(f'mssql+pyodbc:///?odbc_connect={params}')
 
@@ -51,9 +87,18 @@ class DatabaseConnection:
             )
         """)
         
+        process_params_table = text("""
+            CREATE TABLE IF NOT EXISTS process_parameters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tss_value FLOAT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         try:
             with self.dashboard_engine.connect() as conn:
                 conn.execute(feed_params_table)
+                conn.execute(process_params_table)
                 conn.commit()
                 print("Dashboard database initialized successfully")
         except Exception as e:

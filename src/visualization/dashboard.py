@@ -10,8 +10,14 @@ import json
 import jsonschema
 from pathlib import Path
 import logging
+from datetime import datetime
 from data.feed_events import FeedEventLogger
 from analysis.feed_detection import FeedDetector
+from analysis.metrics import BioreactorMetrics
+from data.database import DatabaseConnection
+from analysis.scientific_export import ScientificDataExporter, ScientificAnnotation
+from analysis.ai_insights import OllamaAnalyzer, MetricInsight
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +28,15 @@ class BioreactorDashboard:
         self.settings = self.load_settings()
         self.feed_logger = FeedEventLogger()
         self.feed_detector = FeedDetector()
+        self.metrics = BioreactorMetrics(
+            kla=float(os.getenv('KLA_DEFAULT', 10.0)),
+            stability_window=int(os.getenv('STABILITY_WINDOW', 300)),
+            stability_threshold=float(os.getenv('STABILITY_THRESHOLD', 0.1)),
+            analysis_window=int(os.getenv('ANALYSIS_WINDOW', 300))
+        )
+        self.db = DatabaseConnection()
+        self.scientific_exporter = ScientificDataExporter()
+        self.ai_analyzer = OllamaAnalyzer()  # Will use env variables for configuration
         self.setup_layout()
         self.setup_callbacks()
         
@@ -75,6 +90,12 @@ class BioreactorDashboard:
     def setup_layout(self):
         """Create the dashboard layout."""
         self.app.layout = dbc.Container([
+            # Add interval component for periodic updates
+            dcc.Interval(
+                id='interval-component',
+                interval=10000,
+                n_intervals=0
+            ),
             dbc.Tabs([
                 # Main Monitoring Tab
                 dbc.Tab([
@@ -131,7 +152,39 @@ class BioreactorDashboard:
                             dbc.Card([
                                 dbc.CardHeader("Current Process Values"),
                                 dbc.CardBody(id="current-metrics")
-                            ])
+                            ]),
+                            # Add Oxygen Utilization Metrics Card
+                            dbc.Card([
+                                dbc.CardHeader("Oxygen Utilization Metrics"),
+                                dbc.CardBody([
+                                    dbc.Row([
+                                        dbc.Col([
+                                            html.H6("DO Saturation"),
+                                            html.P(id="do-saturation", className="lead")
+                                        ], width=6),
+                                        dbc.Col([
+                                            html.H6("DO Drop Rate"),
+                                            html.P(id="do-drop-rate", className="lead")
+                                        ], width=6)
+                                    ]),
+                                    dbc.Row([
+                                        dbc.Col([
+                                            html.H6("DO Recovery Time"),
+                                            html.P(id="do-recovery-time", className="lead")
+                                        ], width=6),
+                                        dbc.Col([
+                                            html.H6("Oxygen Uptake Rate (OUR)"),
+                                            html.P(id="our-value", className="lead")
+                                        ], width=6)
+                                    ]),
+                                    dbc.Row([
+                                        dbc.Col([
+                                            html.H6("Specific OUR (sOUR)"),
+                                            html.P(id="sour-value", className="lead")
+                                        ], width=12)
+                                    ])
+                                ])
+                            ], className="mt-3")
                         ], width=9)
                     ], className="mb-4"),
                     
@@ -286,7 +339,125 @@ class BioreactorDashboard:
                             html.Div(id="settings-save-status", className="mt-2")
                         ], width=12)
                     ])
-                ], label="Settings")
+                ], label="Settings"),
+                
+                # Scientific Export Tab
+                dbc.Tab([
+                    dbc.Row([
+                        dbc.Col(html.H2("Scientific Data Export"), width=12)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Add Scientific Annotation"),
+                                dbc.CardBody([
+                                    dbc.Select(
+                                        id="metric-type-select",
+                                        options=[
+                                            {"label": "DO Drop Rate", "value": "DO Drop Rate"},
+                                            {"label": "DO Recovery Time", "value": "DO Recovery Time"},
+                                            {"label": "OUR", "value": "OUR"},
+                                            {"label": "sOUR", "value": "sOUR"},
+                                            {"label": "DO Saturation", "value": "DO Saturation"}
+                                        ],
+                                        placeholder="Select Metric",
+                                        className="mb-3"
+                                    ),
+                                    dbc.Textarea(
+                                        id="observation-text",
+                                        placeholder="Scientific observation...",
+                                        className="mb-3"
+                                    ),
+                                    dbc.Select(
+                                        id="significance-select",
+                                        options=[
+                                            {"label": "High", "value": "high"},
+                                            {"label": "Medium", "value": "medium"},
+                                            {"label": "Low", "value": "low"}
+                                        ],
+                                        placeholder="Significance Level",
+                                        className="mb-3"
+                                    ),
+                                    dbc.Input(
+                                        id="confidence-level",
+                                        type="number",
+                                        min=0,
+                                        max=1,
+                                        step=0.1,
+                                        placeholder="Confidence Level (0-1)",
+                                        className="mb-3"
+                                    ),
+                                    dbc.Input(
+                                        id="operator-name-scientific",
+                                        type="text",
+                                        placeholder="Operator Name",
+                                        className="mb-3"
+                                    ),
+                                    dbc.Button(
+                                        "Add Annotation",
+                                        id="add-annotation-btn",
+                                        color="primary",
+                                        className="mt-2"
+                                    )
+                                ])
+                            ], className="mb-3"),
+                            
+                            dbc.Card([
+                                dbc.CardHeader("Export Options"),
+                                dbc.CardBody([
+                                    dbc.Select(
+                                        id="export-format-select",
+                                        options=[
+                                            {"label": "LaTeX", "value": "latex"},
+                                            {"label": "Markdown", "value": "markdown"}
+                                        ],
+                                        value="latex",
+                                        className="mb-3"
+                                    ),
+                                    dbc.Button(
+                                        "Generate AI Analysis",
+                                        id="generate-ai-btn",
+                                        color="warning",
+                                        className="me-2 mb-3"
+                                    ),
+                                    html.Div(id="ai-analysis-output", className="mb-3"),
+                                    dbc.Button(
+                                        "Export Current Metrics",
+                                        id="export-metrics-btn",
+                                        color="success",
+                                        className="me-2"
+                                    ),
+                                    dbc.Button(
+                                        "Export Time Series",
+                                        id="export-timeseries-btn",
+                                        color="info",
+                                        className="me-2"
+                                    ),
+                                    dbc.Button(
+                                        "Export Full Report",
+                                        id="export-report-btn",
+                                        color="primary"
+                                    )
+                                ])
+                            ])
+                        ], width=4),
+                        
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Export Preview"),
+                                dbc.CardBody([
+                                    html.Pre(
+                                        id="export-preview",
+                                        style={
+                                            "white-space": "pre-wrap",
+                                            "font-family": "monospace"
+                                        }
+                                    )
+                                ])
+                            ])
+                        ], width=8)
+                    ])
+                ], label="Scientific Export")
             ])
         ], fluid=True)
         
@@ -373,7 +544,7 @@ class BioreactorDashboard:
                     if detected_events:
                         latest_event = detected_events[-1]
                         feed_status = html.Div([
-                            html.H5("🔄 Feed Detected!", className="text-success"),
+                            html.H5(" Feed Detected!", className="text-success"),
                             html.P([
                                 f"Time: {pd.to_datetime(latest_event['timestamp']).strftime('%H:%M:%S')}", html.Br(),
                                 f"Type: {latest_event['feed_type']}", html.Br(),
@@ -548,6 +719,246 @@ class BioreactorDashboard:
                 
             except Exception as e:
                 return html.Div(f"Error saving settings: {str(e)}", style={"color": "red"})
+        
+        @self.app.callback(
+            [Output("do-saturation", "children"),
+             Output("do-drop-rate", "children"),
+             Output("do-recovery-time", "children"),
+             Output("our-value", "children"),
+             Output("sour-value", "children")],
+            [Input("interval-component", "n_intervals")]
+        )
+        def update_oxygen_metrics(n):
+            try:
+                # Get the latest DO data from the database
+                query = """
+                    SELECT timestamp, do_value 
+                    FROM reactor_data 
+                    WHERE timestamp >= DATEADD(hour, -2, GETDATE())
+                    ORDER BY timestamp DESC
+                """
+                do_data = pd.read_sql(query, self.db.reactor_engine)
+                
+                # Update DO saturation based on recent data
+                self.metrics.update_do_saturation(do_data)
+                
+                if self.metrics.do_saturation is None:
+                    logger.warning("Could not determine DO saturation from data")
+                    return "No stable DO", "No data", "No data", "No data", "No data"
+                
+                # Get the latest feed event
+                latest_feed = self.feed_logger.get_latest_feed_event()
+                
+                if latest_feed is None:
+                    return (f"{self.metrics.do_saturation:.2f} mg/L", 
+                           "No data", "No data", "No data", "No data")
+                
+                # Get the latest TSS value from manual inputs
+                tss_query = """
+                    SELECT tss_value 
+                    FROM process_parameters 
+                    ORDER BY timestamp DESC 
+                    LIMIT 1
+                """
+                tss_df = pd.read_sql(tss_query, self.db.dashboard_engine)
+                biomass_concentration = tss_df['tss_value'].iloc[0] if not tss_df.empty else None
+                
+                # Calculate metrics
+                event_time = pd.Timestamp(latest_feed['timestamp'])
+                drop_rate, r_squared = self.metrics.calculate_do_drop_rate(do_data, event_time)
+                recovery_time = self.metrics.calculate_recovery_time(do_data, event_time)
+                our = self.metrics.calculate_our(do_data, event_time)
+                sour = self.metrics.calculate_sour(do_data, event_time, biomass_concentration) if biomass_concentration else None
+                
+                # Format output strings
+                saturation_str = f"{self.metrics.do_saturation:.2f} mg/L"
+                drop_rate_str = f"{abs(drop_rate):.3f} mg/L/s (R² = {r_squared:.2f})" if drop_rate else "No data"
+                recovery_str = f"{recovery_time:.1f} s" if recovery_time else "Not recovered"
+                our_str = f"{our:.2f} mg O₂/L/h" if our else "No data"
+                sour_str = f"{sour:.2f} mg O₂/g/h" if sour else "No data"
+                
+                return saturation_str, drop_rate_str, recovery_str, our_str, sour_str
+                
+            except Exception as e:
+                logger.error(f"Error updating oxygen metrics: {e}")
+                return "Error", "Error", "Error", "Error", "Error"
+        
+        @self.app.callback(
+            Output("export-preview", "children"),
+            [Input("export-metrics-btn", "n_clicks"),
+             Input("export-format-select", "value")],
+            [State("operator-name-scientific", "value")]
+        )
+        def update_export_preview(n_clicks, format_type, operator):
+            if not n_clicks:
+                return "Click 'Export Current Metrics' to preview"
+                
+            try:
+                # Get current metrics
+                metrics_data = {
+                    "DO Saturation": self.metrics.do_saturation,
+                    "DO Drop Rate": self.latest_metrics.get("drop_rate", 0),
+                    "DO Recovery Time": self.latest_metrics.get("recovery_time", 0),
+                    "OUR": self.latest_metrics.get("our", 0),
+                    "sOUR": self.latest_metrics.get("sour", 0)
+                }
+                
+                # Get current conditions
+                conditions = {
+                    "Temperature": "25°C",  # Add actual sensor data if available
+                    "pH": "7.0",
+                    "Operator": operator or "Unknown"
+                }
+                
+                return self.scientific_exporter.export_metrics_snapshot(
+                    metrics_data,
+                    conditions,
+                    datetime.now(),
+                    format_type
+                )
+                
+            except Exception as e:
+                logger.error(f"Error generating export preview: {e}")
+                return f"Error: {str(e)}"
+        
+        @self.app.callback(
+            Output("export-status", "children"),
+            [Input("add-annotation-btn", "n_clicks")],
+            [State("metric-type-select", "value"),
+             State("observation-text", "value"),
+             State("significance-select", "value"),
+             State("confidence-level", "value"),
+             State("operator-name-scientific", "value")]
+        )
+        def add_scientific_annotation(n_clicks, metric_type, observation, 
+                                   significance, confidence, operator):
+            if not n_clicks:
+                return ""
+                
+            try:
+                if not all([metric_type, observation, significance, 
+                           confidence, operator]):
+                    return "Please fill all fields"
+                
+                # Get current value for the selected metric
+                current_value = self.latest_metrics.get(
+                    metric_type.lower().replace(" ", "_"),
+                    0
+                )
+                
+                annotation = ScientificAnnotation(
+                    timestamp=datetime.now(),
+                    metric_type=metric_type,
+                    value=current_value,
+                    units=self.scientific_exporter.get_units(metric_type),
+                    observation=observation,
+                    significance=significance,
+                    confidence_level=float(confidence),
+                    experimental_conditions={
+                        "Temperature": "25°C",
+                        "pH": "7.0"
+                    },
+                    operator=operator
+                )
+                
+                self.scientific_exporter.add_annotation(annotation)
+                return "Annotation added successfully"
+                
+            except Exception as e:
+                logger.error(f"Error adding annotation: {e}")
+                return f"Error: {str(e)}"
+        
+        @self.app.callback(
+            Output("ai-analysis-output", "children"),
+            [Input("generate-ai-btn", "n_clicks")],
+            [State("export-format-select", "value")]
+        )
+        def generate_ai_analysis(n_clicks, format_type):
+            if not n_clicks:
+                return ""
+                
+            try:
+                # Get current metrics and historical data
+                current_metrics = {
+                    "DO Saturation": self.metrics.do_saturation,
+                    "DO Drop Rate": self.latest_metrics.get("drop_rate", 0),
+                    "DO Recovery Time": self.latest_metrics.get("recovery_time", 0),
+                    "OUR": self.latest_metrics.get("our", 0),
+                    "sOUR": self.latest_metrics.get("sour", 0)
+                }
+                
+                # Get historical data for trend analysis
+                query = """
+                    SELECT timestamp, do_value 
+                    FROM reactor_data 
+                    WHERE timestamp >= DATEADD(hour, -24, GETDATE())
+                    ORDER BY timestamp ASC
+                """
+                historical_data = pd.read_sql(query, self.db.reactor_engine)
+                
+                # Get current conditions
+                conditions = {
+                    "Temperature": "25°C",
+                    "pH": "7.0",
+                    "Feed Type": self.feed_logger.get_latest_feed_event().get("feed_type", "Unknown")
+                }
+                
+                # Generate AI insights
+                insights = self.ai_analyzer.analyze_metrics(
+                    current_metrics,
+                    historical_data,
+                    conditions
+                )
+                
+                # Generate scientific text
+                scientific_text = self.ai_analyzer.generate_scientific_text(insights)
+                
+                # Format output based on selected format
+                if format_type == "latex":
+                    output = (
+                        "\\begin{quote}\n"
+                        f"{scientific_text}\n"
+                        "\\end{quote}\n\n"
+                        "\\begin{itemize}\n"
+                    )
+                    
+                    for insight in insights:
+                        output += (
+                            f"\\item \\textbf{{{insight.metric_name}}}: "
+                            f"{insight.interpretation} "
+                            f"(Confidence: {insight.confidence*100:.0f}\\%)\n"
+                        )
+                    
+                    output += "\\end{itemize}"
+                    
+                else:  # markdown
+                    output = f"> {scientific_text}\n\n"
+                    for insight in insights:
+                        output += (
+                            f"- **{insight.metric_name}**: "
+                            f"{insight.interpretation} "
+                            f"(Confidence: {insight.confidence*100:.0f}%)\n"
+                        )
+                
+                return dbc.Card([
+                    dbc.CardHeader("AI Analysis"),
+                    dbc.CardBody([
+                        html.Pre(
+                            output,
+                            style={
+                                "white-space": "pre-wrap",
+                                "font-family": "monospace"
+                            }
+                        )
+                    ])
+                ])
+                
+            except Exception as e:
+                logger.error(f"Error in AI analysis: {e}")
+                return html.Div(
+                    f"Error generating AI analysis: {str(e)}",
+                    style={"color": "red"}
+                )
     
     def run_server(self, debug=True, port=8050):
         """Start the Dash server."""
