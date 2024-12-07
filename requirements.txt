@@ -1,12 +1,37 @@
-numpy>=1.24.0
-pandas>=2.0.0
+# Core Dependencies
 dash>=2.9.0
 dash-bootstrap-components>=1.4.0
+dash-core-components>=2.0.0
+dash-html-components>=2.0.0
+dash-table>=5.0.0
 plotly>=5.13.0
-sqlalchemy>=2.0.0
-jsonschema>=4.17.3
-python-dotenv>=1.0.0
-pytz>=2023.3
-python-dateutil>=2.8.2
-scikit-learn>=1.2.2
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+
+# Database Connections
+influxdb-client>=1.36.0
 pyodbc>=4.0.39
+SQLAlchemy>=2.0.0
+python-dotenv>=1.0.0
+
+# AI and Analysis
+requests>=2.31.0
+jsonschema>=4.17.3
+python-dateutil>=2.8.2
+
+# Excel Support
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+
+# Logging and Utilities
+coloredlogs>=15.0.1
+humanfriendly>=10.0
+
+# Testing and Development
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.11.0
+flake8>=6.1.0
