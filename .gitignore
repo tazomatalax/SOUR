@@ -41,3 +41,4 @@ ENV/
 logs/
 src/analysis/__pycache__/metrics.cpython-313.pyc
 src/visualization/__pycache__/dashboard.cpython-313.pyc
+.env/
