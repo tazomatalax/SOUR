@@ -7,18 +7,28 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import json
+import jsonschema
 from pathlib import Path
+import logging
+from data.feed_events import FeedEventLogger
+
+logger = logging.getLogger(__name__)
 
 class BioreactorDashboard:
     def __init__(self):
         self.app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
         self.settings_file = Path("feed_settings.json")
         self.settings = self.load_settings()
+        self.feed_logger = FeedEventLogger()
         self.setup_layout()
         self.setup_callbacks()
         
     def load_settings(self) -> Dict:
         """Load settings from JSON file or create with defaults."""
+        schema_path = Path(__file__).parent.parent / "schemas" / "feed_settings_schema.json"
+        with open(schema_path, 'r') as f:
+            schema = json.load(f)
+            
         default_settings = {
             "control_feed": {
                 "glucose_concentration": 500.0,
@@ -41,10 +51,19 @@ class BioreactorDashboard:
             }
         }
         
-        if self.settings_file.exists():
-            with open(self.settings_file, 'r') as f:
-                return json.load(f)
-        return default_settings
+        try:
+            if self.settings_file.exists():
+                with open(self.settings_file, 'r') as f:
+                    settings = json.load(f)
+                    jsonschema.validate(instance=settings, schema=schema)
+                    return settings
+            return default_settings
+        except jsonschema.exceptions.ValidationError as e:
+            logger.error(f"Settings validation error: {e}")
+            return default_settings
+        except Exception as e:
+            logger.error(f"Error loading settings: {e}")
+            return default_settings
         
     def save_settings(self):
         """Save current settings to JSON file."""
@@ -76,12 +95,30 @@ class BioreactorDashboard:
                                             ],
                                             className="mb-3"
                                         ),
+                                        dbc.Input(
+                                            id="feed-volume",
+                                            type="number",
+                                            placeholder="Feed Volume (L)",
+                                            className="mb-3"
+                                        ),
+                                        dbc.Input(
+                                            id="operator-name",
+                                            type="text",
+                                            placeholder="Operator Name",
+                                            className="mb-3"
+                                        ),
+                                        dbc.Textarea(
+                                            id="feed-notes",
+                                            placeholder="Feed Notes",
+                                            className="mb-3"
+                                        ),
                                         dbc.Button(
                                             "Add Feed Event",
                                             id="add-feed-btn",
                                             color="primary",
                                             className="mt-2"
-                                        )
+                                        ),
+                                        html.Div(id="feed-status", className="mt-2")
                                     ])
                                 ])
                             ])
@@ -389,19 +426,32 @@ class BioreactorDashboard:
             return fig
             
         @self.app.callback(
-            Output("feed-type-select", "disabled"),
-            [Input("update-feed-btn", "n_clicks")],
+            Output("feed-status", "children"),
+            [Input("add-feed-btn", "n_clicks")],
             [State("feed-type-select", "value"),
-             State("toc-input", "value"),
-             State("glucose-conc-input", "value")]
+             State("feed-volume", "value"),
+             State("operator-name", "value"),
+             State("feed-notes", "value")]
         )
-        def update_feed_parameters(n_clicks, feed_type, toc, glucose_conc):
-            if n_clicks is None:
-                return False
+        def log_feed_event(n_clicks, feed_type, volume, operator, notes):
+            if not n_clicks:
+                return ""
                 
-            # Here you would save the feed parameters to your system
-            # For now, just disable the feed type selection after parameters are set
-            return True
+            if not feed_type or not volume:
+                return html.Div("Feed type and volume are required!", style={"color": "red"})
+                
+            try:
+                components = self.settings[feed_type]["components"]
+                self.feed_logger.log_event(
+                    feed_type=feed_type,
+                    volume=volume,
+                    components=components,
+                    operator=operator,
+                    notes=notes
+                )
+                return html.Div("Feed event logged successfully!", style={"color": "green"})
+            except Exception as e:
+                return html.Div(f"Error logging feed event: {str(e)}", style={"color": "red"})
         
         @self.app.callback(
             Output("settings-save-status", "children"),

@@ -1,0 +1,21 @@
+{
+    "control_feed": {
+        "glucose_concentration": 500,
+        "toc_concentration": 200,
+        "default_volume": 0.1,
+        "components": {
+            "glucose": 500,
+            "yeast_extract": 10,
+            "minerals": 5
+        }
+    },
+    "experimental_feed": {
+        "toc_concentration": 200,
+        "default_volume": 0.1,
+        "components": {
+            "carbon_source": 300,
+            "nitrogen_source": 20,
+            "minerals": 5
+        }
+    }
+}
