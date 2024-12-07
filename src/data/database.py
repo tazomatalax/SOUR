@@ -14,8 +14,16 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class DatabaseConnection:
-    def __init__(self):
-        """Initialize database connections using environment variables."""
+    def __init__(self, required: bool = False):
+        """Initialize database connections using environment variables.
+        
+        Args:
+            required (bool): If True, raises exceptions on connection failure.
+                           If False, continues with limited functionality.
+        """
+        self.is_connected = False
+        self.required = required
+        
         # MS SQL Server connection string components
         self.server = os.getenv('MSSQL_SERVER', 'localhost')
         self.database = os.getenv('MSSQL_DATABASE', 'SOUR')
@@ -25,11 +33,19 @@ class DatabaseConnection:
         self.port = os.getenv('MSSQL_PORT', '1433')
         self.trusted_connection = os.getenv('MSSQL_TRUSTED_CONNECTION', 'yes')
         
-        self.conn_str = self._build_connection_string()
-        self.reactor_engine = self._create_reactor_engine()
-        self.dashboard_engine = self._create_dashboard_engine()
-        self.initialize_dashboard_database()
-        self._test_connection()
+        try:
+            self.conn_str = self._build_connection_string()
+            self.reactor_engine = self._create_reactor_engine()
+            self.dashboard_engine = self._create_dashboard_engine()
+            self.initialize_dashboard_database()
+            self._test_connection()
+            self.is_connected = True
+            logger.info("Database connection established successfully")
+        except Exception as e:
+            logger.error(f"Failed to connect to database: {e}")
+            if self.required:
+                raise
+            logger.warning("Continuing with limited functionality (no database connection)")
         
     def _build_connection_string(self) -> str:
         """Build the connection string using environment variables."""

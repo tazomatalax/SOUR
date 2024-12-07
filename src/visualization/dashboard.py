@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 import dash
 from dash import dcc, html
 import dash_bootstrap_components as dbc
@@ -22,19 +22,20 @@ import os
 logger = logging.getLogger(__name__)
 
 class BioreactorDashboard:
-    def __init__(self):
+    def __init__(self, db: Optional[DatabaseConnection] = None):
         self.app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
         self.settings_file = Path("feed_settings.json")
         self.settings = self.load_settings()
         self.feed_logger = FeedEventLogger()
         self.feed_detector = FeedDetector()
         self.metrics = BioreactorMetrics(
+            db=db,
             kla=float(os.getenv('KLA_DEFAULT', 10.0)),
             stability_window=int(os.getenv('STABILITY_WINDOW', 300)),
             stability_threshold=float(os.getenv('STABILITY_THRESHOLD', 0.1)),
             analysis_window=int(os.getenv('ANALYSIS_WINDOW', 300))
         )
-        self.db = DatabaseConnection()
+        self.db = db
         self.scientific_exporter = ScientificDataExporter()
         self.ai_analyzer = OllamaAnalyzer()  # Will use env variables for configuration
         self.setup_layout()

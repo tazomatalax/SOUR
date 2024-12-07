@@ -16,6 +16,7 @@ class FeedEvent:
 
 class BioreactorMetrics:
     def __init__(self, 
+                db: Optional['DatabaseConnection'] = None,
                 kla: float = None,  # Mass transfer coefficient (h⁻¹)
                 stability_window: int = 300,  # Window for stability analysis (seconds)
                 stability_threshold: float = 0.1,  # Maximum DO variation for stability (mg/L)
@@ -26,6 +27,7 @@ class BioreactorMetrics:
         self.stability_threshold = stability_threshold
         self.analysis_window = analysis_window
         self.do_saturation = None  # Will be calculated from data
+        self.db = db
         
     def add_feed_event(self, event: FeedEvent):
         """Record a new feed event."""

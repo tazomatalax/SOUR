@@ -44,40 +44,39 @@ class BioreactorSystem:
             load_dotenv()
             logger.info("Environment variables loaded successfully")
 
-            # Initialize database connection
-            self.db = DatabaseConnection()
-            logger.info("Database connection established")
+            # Initialize database connection (non-required mode)
+            self.db = DatabaseConnection(required=False)
 
-            # Initialize metrics analyzer
-            self.metrics = BioreactorMetrics()
+            # Initialize metrics analyzer with conditional database dependency
+            self.metrics = BioreactorMetrics(self.db if self.db.is_connected else None)
             logger.info("Metrics analyzer initialized")
 
-            # Initialize dashboard
-            self.dashboard = BioreactorDashboard()
+            # Initialize dashboard with conditional database dependency
+            self.dashboard = BioreactorDashboard(self.db if self.db.is_connected else None)
             logger.info("Dashboard initialized")
 
+            return True
+
         except Exception as e:
-            logger.error(f"Initialization failed: {str(e)}")
+            logger.error(f"Initialization failed: {e}")
             self.cleanup()
-            raise
+            return False
 
     def cleanup(self):
-        """Clean up system resources."""
+        """Cleanup system resources."""
         logger.info("Starting cleanup process...")
-        
-        if self.db:
-            try:
-                self.db.close()
-                logger.info("Database connection closed")
-            except Exception as e:
-                logger.error(f"Error closing database connection: {str(e)}")
-
-        if self.dashboard:
-            try:
-                self.dashboard.shutdown()
-                logger.info("Dashboard shutdown complete")
-            except Exception as e:
-                logger.error(f"Error shutting down dashboard: {str(e)}")
+        try:
+            if self.db and self.db.is_connected:
+                # Add cleanup for database if needed
+                pass
+            if self.metrics:
+                # Add cleanup for metrics if needed
+                pass
+            if self.dashboard:
+                # Add cleanup for dashboard if needed
+                pass
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
 
     def run(self):
         """Run the bioreactor monitoring system."""
@@ -92,8 +91,8 @@ class BioreactorSystem:
 def main():
     system = BioreactorSystem()
     try:
-        system.initialize()
-        system.run()
+        if system.initialize():
+            system.run()
     except Exception as e:
         logger.critical(f"Fatal error in main program: {str(e)}")
         sys.exit(1)
