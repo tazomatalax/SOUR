@@ -4,19 +4,21 @@ import pandas as pd
 import pyodbc
 from sqlalchemy import create_engine, text
 import urllib
+from pathlib import Path
 
 class DatabaseConnection:
     def __init__(self):
-        self.engine = self._create_db_engine()
+        self.reactor_engine = self._create_reactor_engine()
+        self.dashboard_engine = self._create_dashboard_engine()
+        self.initialize_dashboard_database()
         
-    def _create_db_engine(self):
-        """Create SQLAlchemy engine for SQL Server connection."""
-        server = 'v-rot-sql04'
-        database = 'DBReactor'
-        username = 'dbreactor'
-        password = 'reactorscion'
+    def _create_reactor_engine(self):
+        """Create SQLAlchemy engine for read-only Reactor database connection."""
+        server = os.getenv('REACTOR_DB_SERVER')
+        database = os.getenv('REACTOR_DB_NAME')
+        username = os.getenv('REACTOR_DB_USER')
+        password = os.getenv('REACTOR_DB_PASSWORD')
         
-        # Create the connection string
         params = urllib.parse.quote_plus(
             'DRIVER={SQL Server};'
             f'SERVER={server};'
@@ -26,32 +28,39 @@ class DatabaseConnection:
         )
         
         return create_engine(f'mssql+pyodbc:///?odbc_connect={params}')
-    
-    def initialize_database(self):
-        """Initialize database tables if they don't exist."""
+
+    def _create_dashboard_engine(self):
+        """Create SQLAlchemy engine for local SQLite dashboard database."""
+        # Create data directory if it doesn't exist
+        data_dir = Path('data')
+        data_dir.mkdir(exist_ok=True)
+        
+        # SQLite database will be stored in data/dashboard.db
+        db_path = data_dir / 'dashboard.db'
+        return create_engine(f'sqlite:///{db_path}')
+
+    def initialize_dashboard_database(self):
+        """Initialize dashboard database tables if they don't exist."""
         feed_params_table = text("""
-            IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[feed_parameters]') AND type in (N'U'))
-            BEGIN
-                CREATE TABLE feed_parameters (
-                    id INT IDENTITY(1,1) PRIMARY KEY,
-                    feed_type VARCHAR(50) NOT NULL,
-                    toc_value FLOAT,
-                    glucose_concentration FLOAT,
-                    timestamp DATETIME DEFAULT GETDATE()
-                )
-            END
+            CREATE TABLE IF NOT EXISTS feed_parameters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feed_type VARCHAR(50) NOT NULL,
+                toc_value FLOAT,
+                glucose_concentration FLOAT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
         """)
         
         try:
-            with self.engine.connect() as conn:
+            with self.dashboard_engine.connect() as conn:
                 conn.execute(feed_params_table)
                 conn.commit()
-                print("Database initialized successfully")
+                print("Dashboard database initialized successfully")
         except Exception as e:
-            print(f"Error initializing database: {e}")
-    
+            print(f"Error initializing dashboard database: {e}")
+
     def get_latest_data(self, minutes: int = 5) -> pd.DataFrame:
-        """Fetch the latest data from the database."""
+        """Fetch the latest data from the reactor database."""
         query = text("""
             SELECT 
                 DateTime,
@@ -80,7 +89,7 @@ class DatabaseConnection:
         """)
         
         try:
-            with self.engine.connect() as conn:
+            with self.reactor_engine.connect() as conn:
                 df = pd.read_sql_query(query, conn, params={'minutes': minutes})
             return df
         except Exception as e:
@@ -115,7 +124,7 @@ class DatabaseConnection:
         """)
         
         try:
-            with self.engine.connect() as conn:
+            with self.reactor_engine.connect() as conn:
                 result = conn.execute(query).fetchone()
                 if result:
                     return {
@@ -151,49 +160,46 @@ class DatabaseConnection:
             return {}
 
     def save_feed_parameters(self, feed_type: str, toc: float = None, glucose_conc: float = None) -> bool:
-        """Save feed parameters to the database."""
+        """Save feed parameters to the dashboard database."""
         query = text("""
-            INSERT INTO feed_parameters (feed_type, toc_value, glucose_concentration, timestamp)
-            VALUES (:feed_type, :toc, :glucose_conc, GETDATE())
+            INSERT INTO feed_parameters (feed_type, toc_value, glucose_concentration)
+            VALUES (:feed_type, :toc, :glucose_conc)
         """)
         
         try:
-            with self.engine.connect() as conn:
-                conn.execute(query, {
-                    'feed_type': feed_type,
-                    'toc': toc,
-                    'glucose_conc': glucose_conc
-                })
+            with self.dashboard_engine.connect() as conn:
+                conn.execute(query, 
+                           {"feed_type": feed_type, 
+                            "toc": toc, 
+                            "glucose_conc": glucose_conc})
                 conn.commit()
-                return True
+                print("Feed parameters saved successfully")
         except Exception as e:
             print(f"Error saving feed parameters: {e}")
-            return False
 
     def get_feed_parameters(self) -> Dict:
         """Get the current feed parameters."""
         query = text("""
-            SELECT TOP 1
-                feed_type,
-                toc_value,
-                glucose_concentration
+            SELECT feed_type, toc_value, glucose_concentration, timestamp
             FROM feed_parameters
             ORDER BY timestamp DESC
+            LIMIT 1
         """)
         
         try:
-            with self.engine.connect() as conn:
+            with self.dashboard_engine.connect() as conn:
                 result = conn.execute(query).fetchone()
                 if result:
                     return {
-                        'feed_type': result.feed_type,
-                        'toc': result.toc_value,
-                        'glucose_conc': result.glucose_concentration
+                        'feed_type': result[0],
+                        'toc_value': result[1],
+                        'glucose_concentration': result[2],
+                        'timestamp': result[3]
                     }
-                return {}
         except Exception as e:
             print(f"Error fetching feed parameters: {e}")
-            return {}
+        
+        return {}
 
     def get_historical_data(self, start_time: str, end_time: str) -> pd.DataFrame:
         """Fetch historical data between specified timestamps.
@@ -213,7 +219,7 @@ class DatabaseConnection:
             ORDER BY timestamp ASC
         """)
         
-        with self.engine.connect() as conn:
+        with self.reactor_engine.connect() as conn:
             df = pd.read_sql_query(
                 query, 
                 conn, 
