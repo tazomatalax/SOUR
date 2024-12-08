@@ -9,7 +9,9 @@ from ..core.feature import Feature
 from .data_collection import DataCollectionFeature
 from .metrics import MetricsFeature
 from .feed_tracking import FeedTrackingFeature
+from .ai_insights_feature import AIInsightsFeature
 from ..analysis.scientific_export import ScientificDataExporter, ScientificAnnotation
+from ..analysis.ai_insights import OllamaAnalyzer, MetricInsight
 from pathlib import Path
 import json
 import jsonschema
@@ -20,11 +22,13 @@ logger = logging.getLogger(__name__)
 class VisualizationFeature(Feature):
     def __init__(self, data_collection: Optional[DataCollectionFeature] = None,
                  metrics: Optional[MetricsFeature] = None,
-                 feed_tracking: Optional[FeedTrackingFeature] = None):
+                 feed_tracking: Optional[FeedTrackingFeature] = None,
+                 ai_insights: Optional[AIInsightsFeature] = None):
         super().__init__("visualization")
         self.data_collection = data_collection
         self.metrics = metrics
         self.feed_tracking = feed_tracking
+        self.ai_insights = ai_insights
         self.app = None
         self.settings_file = Path("feed_settings.json")
         self.settings = self._load_settings()
@@ -63,296 +67,331 @@ class VisualizationFeature(Feature):
         if not self.app:
             return
             
+        tabs = [
+            # Main Monitoring Tab
+            dbc.Tab([
+                dbc.Row([
+                    dbc.Col(html.H1("Bioreactor Monitoring System"), width=12)
+                ]),
+                # Feed Configuration Section
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("Quick Feed Actions"),
+                            dbc.CardBody([
+                                html.Div([
+                                    html.Label("Feed Type"),
+                                    dbc.Select(
+                                        id="feed-type-select",
+                                        options=[
+                                            {"label": "Control Feed", "value": "control"},
+                                            {"label": "Experimental Feed", "value": "experimental"}
+                                        ],
+                                        className="mb-3"
+                                    ),
+                                    dbc.Input(
+                                        id="feed-volume",
+                                        type="number",
+                                        placeholder="Feed Volume (L)",
+                                        className="mb-3"
+                                    ),
+                                    dbc.Input(
+                                        id="operator-name",
+                                        type="text",
+                                        placeholder="Operator Name",
+                                        className="mb-3"
+                                    ),
+                                    dbc.Button(
+                                        "Add Feed Event",
+                                        id="add-feed-btn",
+                                        color="primary",
+                                        className="mt-2"
+                                    ),
+                                    html.Div(id="feed-status", className="mt-2")
+                                ])
+                            ])
+                        ])
+                    ], width=3),
+                    
+                    # Current Metrics Display
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("Current Process Values"),
+                            dbc.CardBody(id="current-metrics")
+                        ]),
+                        # Oxygen Utilization Metrics Card
+                        dbc.Card([
+                            dbc.CardHeader("Oxygen Utilization Metrics"),
+                            dbc.CardBody([
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.H6("DO Saturation"),
+                                        html.P(id="do-saturation", className="lead")
+                                    ], width=6),
+                                    dbc.Col([
+                                        html.H6("DO Drop Rate"),
+                                        html.P(id="do-drop-rate", className="lead")
+                                    ], width=6)
+                                ]),
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.H6("DO Recovery Time"),
+                                        html.P(id="do-recovery-time", className="lead")
+                                    ], width=6),
+                                    dbc.Col([
+                                        html.H6("Oxygen Uptake Rate (OUR)"),
+                                        html.P(id="our-value", className="lead")
+                                    ], width=6)
+                                ])
+                            ])
+                        ], className="mt-3")
+                    ], width=9)
+                ], className="mb-4"),
+                
+                # Graphs Section
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("Process Monitoring"),
+                            dbc.CardBody([
+                                dcc.Graph(id='main-graph'),
+                            ])
+                        ])
+                    ], width=12)
+                ])
+            ], label="Monitoring"),
+            
+            # Settings Tab
+            dbc.Tab([
+                dbc.Row([
+                    dbc.Col(html.H2("Feed Settings"), width=12)
+                ]),
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("Control Feed Settings"),
+                            dbc.CardBody([
+                                dbc.Input(
+                                    id="control-glucose-conc",
+                                    type="number",
+                                    placeholder="Glucose Concentration (g/L)",
+                                    value=self.settings["control_feed"]["glucose_concentration"],
+                                    className="mb-3"
+                                ),
+                                dbc.Input(
+                                    id="control-toc-conc",
+                                    type="number",
+                                    placeholder="TOC Concentration (g/L)",
+                                    value=self.settings["control_feed"]["toc_concentration"],
+                                    className="mb-3"
+                                ),
+                                dbc.Input(
+                                    id="control-volume",
+                                    type="number",
+                                    placeholder="Default Volume (L)",
+                                    value=self.settings["control_feed"]["default_volume"],
+                                    className="mb-3"
+                                ),
+                                html.H6("Components"),
+                                dbc.Input(
+                                    id="control-comp-glucose",
+                                    type="number",
+                                    placeholder="Glucose (g/L)",
+                                    value=self.settings["control_feed"]["components"]["glucose"],
+                                    className="mb-2"
+                                ),
+                                dbc.Input(
+                                    id="control-comp-yeast",
+                                    type="number",
+                                    placeholder="Yeast Extract (g/L)",
+                                    value=self.settings["control_feed"]["components"]["yeast_extract"],
+                                    className="mb-2"
+                                ),
+                                dbc.Input(
+                                    id="control-comp-minerals",
+                                    type="number",
+                                    placeholder="Minerals (g/L)",
+                                    value=self.settings["control_feed"]["components"]["minerals"],
+                                    className="mb-2"
+                                )
+                            ])
+                        ])
+                    ], width=6),
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("Experimental Feed Settings"),
+                            dbc.CardBody([
+                                dbc.Input(
+                                    id="exp-toc-conc",
+                                    type="number",
+                                    placeholder="TOC Concentration (g/L)",
+                                    value=self.settings["experimental_feed"]["toc_concentration"],
+                                    className="mb-3"
+                                ),
+                                dbc.Input(
+                                    id="exp-volume",
+                                    type="number",
+                                    placeholder="Default Volume (L)",
+                                    value=self.settings["experimental_feed"]["default_volume"],
+                                    className="mb-3"
+                                ),
+                                html.H6("Components"),
+                                dbc.Input(
+                                    id="exp-comp-carbon",
+                                    type="number",
+                                    placeholder="Carbon Source (g/L)",
+                                    value=self.settings["experimental_feed"]["components"]["carbon_source"],
+                                    className="mb-2"
+                                ),
+                                dbc.Input(
+                                    id="exp-comp-nitrogen",
+                                    type="number",
+                                    placeholder="Nitrogen Source (g/L)",
+                                    value=self.settings["experimental_feed"]["components"]["nitrogen_source"],
+                                    className="mb-2"
+                                ),
+                                dbc.Input(
+                                    id="exp-comp-minerals",
+                                    type="number",
+                                    placeholder="Minerals (g/L)",
+                                    value=self.settings["experimental_feed"]["components"]["minerals"],
+                                    className="mb-2"
+                                )
+                            ])
+                        ])
+                    ], width=6)
+                ]),
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Button("Save Settings", id="save-settings-btn", color="primary", className="mt-3"),
+                        html.Div(id="settings-save-status", className="mt-2")
+                    ], width=12)
+                ])
+            ], label="Settings"),
+            
+            # Export Tab
+            dbc.Tab([
+                dbc.Row([
+                    dbc.Col(html.H2("Scientific Data Export"), width=12)
+                ]),
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("Export Current Metrics"),
+                            dbc.CardBody([
+                                dbc.Select(
+                                    id="export-format-select",
+                                    options=[
+                                        {"label": "Markdown", "value": "markdown"},
+                                        {"label": "LaTeX", "value": "latex"}
+                                    ],
+                                    value="markdown",
+                                    className="mb-3"
+                                ),
+                                dbc.Input(
+                                    id="operator-name-scientific",
+                                    type="text",
+                                    placeholder="Operator Name",
+                                    className="mb-3"
+                                ),
+                                dbc.Button(
+                                    "Export Current Metrics",
+                                    id="export-metrics-btn",
+                                    color="primary",
+                                    className="mb-3"
+                                ),
+                                html.Div(id="export-preview", className="mt-3")
+                            ])
+                        ]),
+                        dbc.Card([
+                            dbc.CardHeader("Add Scientific Annotation"),
+                            dbc.CardBody([
+                                dbc.Select(
+                                    id="metric-type-select",
+                                    options=[
+                                        {"label": "DO Drop Rate", "value": "drop_rate"},
+                                        {"label": "Recovery Time", "value": "recovery_time"},
+                                        {"label": "OUR", "value": "our"},
+                                        {"label": "sOUR", "value": "sour"}
+                                    ],
+                                    className="mb-3"
+                                ),
+                                dbc.Textarea(
+                                    id="observation-text",
+                                    placeholder="Scientific Observation",
+                                    className="mb-3"
+                                ),
+                                dbc.Select(
+                                    id="significance-select",
+                                    options=[
+                                        {"label": "High", "value": "high"},
+                                        {"label": "Medium", "value": "medium"},
+                                        {"label": "Low", "value": "low"}
+                                    ],
+                                    className="mb-3"
+                                ),
+                                dbc.Input(
+                                    id="confidence-level",
+                                    type="number",
+                                    min=0,
+                                    max=1,
+                                    step=0.1,
+                                    placeholder="Confidence Level (0-1)",
+                                    className="mb-3"
+                                ),
+                                dbc.Button(
+                                    "Add Annotation",
+                                    id="add-annotation-btn",
+                                    color="primary"
+                                ),
+                                html.Div(id="export-status", className="mt-2")
+                            ])
+                        ], className="mt-3")
+                    ], width=12)
+                ])
+            ], label="Export"),
+        ]
+        
+        # Add AI Insights tab if feature is enabled
+        if self.ai_insights and self.ai_insights.is_enabled():
+            tabs.append(
+                dbc.Tab([
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader(html.H2("AI Process Insights")),
+                                dbc.CardBody([
+                                    html.Div(id="ai-insights-content")
+                                ])
+                            ])
+                        ], width=12)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader("Scientific Text Generation"),
+                                dbc.CardBody([
+                                    dbc.Button(
+                                        "Generate Report",
+                                        id="generate-report-btn",
+                                        color="primary",
+                                        className="mb-3"
+                                    ),
+                                    html.Div(id="scientific-text-output")
+                                ])
+                            ])
+                        ], width=12)
+                    ], className="mt-4")
+                ], label="AI Insights", id="ai-insights-tab")
+            )
+            
         self.app.layout = dbc.Container([
             dcc.Interval(
                 id='interval-component',
                 interval=self.get_config('update_interval', 5) * 1000,
                 n_intervals=0
             ),
-            dbc.Tabs([
-                # Main Monitoring Tab
-                dbc.Tab([
-                    dbc.Row([
-                        dbc.Col(html.H1("Bioreactor Monitoring System"), width=12)
-                    ]),
-                    # Feed Configuration Section
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardHeader("Quick Feed Actions"),
-                                dbc.CardBody([
-                                    html.Div([
-                                        html.Label("Feed Type"),
-                                        dbc.Select(
-                                            id="feed-type-select",
-                                            options=[
-                                                {"label": "Control Feed", "value": "control"},
-                                                {"label": "Experimental Feed", "value": "experimental"}
-                                            ],
-                                            className="mb-3"
-                                        ),
-                                        dbc.Input(
-                                            id="feed-volume",
-                                            type="number",
-                                            placeholder="Feed Volume (L)",
-                                            className="mb-3"
-                                        ),
-                                        dbc.Input(
-                                            id="operator-name",
-                                            type="text",
-                                            placeholder="Operator Name",
-                                            className="mb-3"
-                                        ),
-                                        dbc.Button(
-                                            "Add Feed Event",
-                                            id="add-feed-btn",
-                                            color="primary",
-                                            className="mt-2"
-                                        ),
-                                        html.Div(id="feed-status", className="mt-2")
-                                    ])
-                                ])
-                            ])
-                        ], width=3),
-                        
-                        # Current Metrics Display
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardHeader("Current Process Values"),
-                                dbc.CardBody(id="current-metrics")
-                            ]),
-                            # Oxygen Utilization Metrics Card
-                            dbc.Card([
-                                dbc.CardHeader("Oxygen Utilization Metrics"),
-                                dbc.CardBody([
-                                    dbc.Row([
-                                        dbc.Col([
-                                            html.H6("DO Saturation"),
-                                            html.P(id="do-saturation", className="lead")
-                                        ], width=6),
-                                        dbc.Col([
-                                            html.H6("DO Drop Rate"),
-                                            html.P(id="do-drop-rate", className="lead")
-                                        ], width=6)
-                                    ]),
-                                    dbc.Row([
-                                        dbc.Col([
-                                            html.H6("DO Recovery Time"),
-                                            html.P(id="do-recovery-time", className="lead")
-                                        ], width=6),
-                                        dbc.Col([
-                                            html.H6("Oxygen Uptake Rate (OUR)"),
-                                            html.P(id="our-value", className="lead")
-                                        ], width=6)
-                                    ])
-                                ])
-                            ], className="mt-3")
-                        ], width=9)
-                    ], className="mb-4"),
-                    
-                    # Graphs Section
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardHeader("Process Monitoring"),
-                                dbc.CardBody([
-                                    dcc.Graph(id='main-graph'),
-                                ])
-                            ])
-                        ], width=12)
-                    ])
-                ], label="Monitoring"),
-                
-                # Settings Tab
-                dbc.Tab([
-                    dbc.Row([
-                        dbc.Col(html.H2("Feed Settings"), width=12)
-                    ]),
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardHeader("Control Feed Settings"),
-                                dbc.CardBody([
-                                    dbc.Input(
-                                        id="control-glucose-conc",
-                                        type="number",
-                                        placeholder="Glucose Concentration (g/L)",
-                                        value=self.settings["control_feed"]["glucose_concentration"],
-                                        className="mb-3"
-                                    ),
-                                    dbc.Input(
-                                        id="control-toc-conc",
-                                        type="number",
-                                        placeholder="TOC Concentration (g/L)",
-                                        value=self.settings["control_feed"]["toc_concentration"],
-                                        className="mb-3"
-                                    ),
-                                    dbc.Input(
-                                        id="control-volume",
-                                        type="number",
-                                        placeholder="Default Volume (L)",
-                                        value=self.settings["control_feed"]["default_volume"],
-                                        className="mb-3"
-                                    ),
-                                    html.H6("Components"),
-                                    dbc.Input(
-                                        id="control-comp-glucose",
-                                        type="number",
-                                        placeholder="Glucose (g/L)",
-                                        value=self.settings["control_feed"]["components"]["glucose"],
-                                        className="mb-2"
-                                    ),
-                                    dbc.Input(
-                                        id="control-comp-yeast",
-                                        type="number",
-                                        placeholder="Yeast Extract (g/L)",
-                                        value=self.settings["control_feed"]["components"]["yeast_extract"],
-                                        className="mb-2"
-                                    ),
-                                    dbc.Input(
-                                        id="control-comp-minerals",
-                                        type="number",
-                                        placeholder="Minerals (g/L)",
-                                        value=self.settings["control_feed"]["components"]["minerals"],
-                                        className="mb-2"
-                                    )
-                                ])
-                            ])
-                        ], width=6),
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardHeader("Experimental Feed Settings"),
-                                dbc.CardBody([
-                                    dbc.Input(
-                                        id="exp-toc-conc",
-                                        type="number",
-                                        placeholder="TOC Concentration (g/L)",
-                                        value=self.settings["experimental_feed"]["toc_concentration"],
-                                        className="mb-3"
-                                    ),
-                                    dbc.Input(
-                                        id="exp-volume",
-                                        type="number",
-                                        placeholder="Default Volume (L)",
-                                        value=self.settings["experimental_feed"]["default_volume"],
-                                        className="mb-3"
-                                    ),
-                                    html.H6("Components"),
-                                    dbc.Input(
-                                        id="exp-comp-carbon",
-                                        type="number",
-                                        placeholder="Carbon Source (g/L)",
-                                        value=self.settings["experimental_feed"]["components"]["carbon_source"],
-                                        className="mb-2"
-                                    ),
-                                    dbc.Input(
-                                        id="exp-comp-nitrogen",
-                                        type="number",
-                                        placeholder="Nitrogen Source (g/L)",
-                                        value=self.settings["experimental_feed"]["components"]["nitrogen_source"],
-                                        className="mb-2"
-                                    ),
-                                    dbc.Input(
-                                        id="exp-comp-minerals",
-                                        type="number",
-                                        placeholder="Minerals (g/L)",
-                                        value=self.settings["experimental_feed"]["components"]["minerals"],
-                                        className="mb-2"
-                                    )
-                                ])
-                            ])
-                        ], width=6)
-                    ]),
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Button("Save Settings", id="save-settings-btn", color="primary", className="mt-3"),
-                            html.Div(id="settings-save-status", className="mt-2")
-                        ], width=12)
-                    ])
-                ], label="Settings"),
-                
-                # Export Tab
-                dbc.Tab([
-                    dbc.Row([
-                        dbc.Col(html.H2("Scientific Data Export"), width=12)
-                    ]),
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardHeader("Export Current Metrics"),
-                                dbc.CardBody([
-                                    dbc.Select(
-                                        id="export-format-select",
-                                        options=[
-                                            {"label": "Markdown", "value": "markdown"},
-                                            {"label": "LaTeX", "value": "latex"}
-                                        ],
-                                        value="markdown",
-                                        className="mb-3"
-                                    ),
-                                    dbc.Input(
-                                        id="operator-name-scientific",
-                                        type="text",
-                                        placeholder="Operator Name",
-                                        className="mb-3"
-                                    ),
-                                    dbc.Button(
-                                        "Export Current Metrics",
-                                        id="export-metrics-btn",
-                                        color="primary",
-                                        className="mb-3"
-                                    ),
-                                    html.Div(id="export-preview", className="mt-3")
-                                ])
-                            ]),
-                            dbc.Card([
-                                dbc.CardHeader("Add Scientific Annotation"),
-                                dbc.CardBody([
-                                    dbc.Select(
-                                        id="metric-type-select",
-                                        options=[
-                                            {"label": "DO Drop Rate", "value": "drop_rate"},
-                                            {"label": "Recovery Time", "value": "recovery_time"},
-                                            {"label": "OUR", "value": "our"},
-                                            {"label": "sOUR", "value": "sour"}
-                                        ],
-                                        className="mb-3"
-                                    ),
-                                    dbc.Textarea(
-                                        id="observation-text",
-                                        placeholder="Scientific Observation",
-                                        className="mb-3"
-                                    ),
-                                    dbc.Select(
-                                        id="significance-select",
-                                        options=[
-                                            {"label": "High", "value": "high"},
-                                            {"label": "Medium", "value": "medium"},
-                                            {"label": "Low", "value": "low"}
-                                        ],
-                                        className="mb-3"
-                                    ),
-                                    dbc.Input(
-                                        id="confidence-level",
-                                        type="number",
-                                        min=0,
-                                        max=1,
-                                        step=0.1,
-                                        placeholder="Confidence Level (0-1)",
-                                        className="mb-3"
-                                    ),
-                                    dbc.Button(
-                                        "Add Annotation",
-                                        id="add-annotation-btn",
-                                        color="primary"
-                                    ),
-                                    html.Div(id="export-status", className="mt-2")
-                                ])
-                            ], className="mt-3")
-                        ], width=12)
-                    ])
-                ], label="Export")
-            ])
+            dbc.Tabs(tabs)
         ])
 
     def _setup_callbacks(self):
@@ -597,6 +636,85 @@ class VisualizationFeature(Feature):
             except Exception as e:
                 logger.error(f"Error adding annotation: {e}")
                 return f"Error: {str(e)}"
+
+        # Only set up AI callbacks if feature is enabled
+        if self.ai_insights and self.ai_insights.is_enabled():
+            @self.app.callback(
+                Output("ai-insights-content", "children"),
+                [Input("interval-component", "n_intervals")]
+            )
+            def update_ai_insights(n):
+                try:
+                    insights = self.ai_insights.analyze_current_state()
+                    
+                    if not insights:
+                        return html.Div("No insights available", style={"color": "gray"})
+                    
+                    # Create cards for each insight
+                    insight_cards = []
+                    for insight in insights:
+                        card = dbc.Card([
+                            dbc.CardHeader([
+                                html.H5(
+                                    insight.metric_name,
+                                    className="d-inline me-2"
+                                ),
+                                dbc.Badge(
+                                    insight.significance.upper(),
+                                    color="danger" if insight.significance == "high"
+                                    else "warning" if insight.significance == "medium"
+                                    else "info",
+                                    className="ms-2"
+                                )
+                            ]),
+                            dbc.CardBody([
+                                html.P([
+                                    html.Strong("Current Value: "),
+                                    f"{insight.value:.3g}",
+                                    html.Br(),
+                                    html.Strong("Trend: "),
+                                    insight.trend,
+                                    html.Br(),
+                                    html.Strong("Interpretation: "),
+                                    insight.interpretation
+                                ]),
+                                html.H6("Recommendations:"),
+                                html.Ul([
+                                    html.Li(rec) for rec in insight.recommendations
+                                ]),
+                                dbc.Progress(
+                                    value=insight.confidence * 100,
+                                    label=f"Confidence: {insight.confidence:.0%}",
+                                    className="mt-2"
+                                )
+                            ])
+                        ], className="mb-3")
+                        insight_cards.append(card)
+                    
+                    return html.Div(insight_cards)
+                    
+                except Exception as e:
+                    logger.error(f"Error updating AI insights: {e}")
+                    return html.Div(f"Error: {str(e)}", style={"color": "red"})
+
+            @self.app.callback(
+                Output("scientific-text-output", "children"),
+                [Input("generate-report-btn", "n_clicks")]
+            )
+            def generate_scientific_report(n_clicks):
+                if not n_clicks:
+                    return "Click 'Generate Report' to create a scientific summary"
+                    
+                try:
+                    scientific_text = self.ai_insights.generate_scientific_report()
+                    if not scientific_text:
+                        return "No insights available for report generation"
+                        
+                    return dcc.Markdown(scientific_text)
+                    
+                except Exception as e:
+                    logger.error(f"Error generating scientific report: {e}")
+                    return f"Error generating report: {str(e)}"
 
     def _load_settings(self) -> Dict:
         """Load settings from JSON file or create with defaults."""

@@ -10,6 +10,7 @@ from src.features.data_collection import DataCollectionFeature
 from src.features.metrics import MetricsFeature
 from src.features.feed_tracking import FeedTrackingFeature
 from src.features.visualization import VisualizationFeature
+from src.features.ai_insights_feature import AIInsightsFeature
 
 # Configure logging
 logging.basicConfig(
@@ -45,6 +46,7 @@ class BioreactorSystem:
         self.registry.register_feature_class("metrics", MetricsFeature)
         self.registry.register_feature_class("feed_tracking", FeedTrackingFeature)
         self.registry.register_feature_class("visualization", VisualizationFeature)
+        self.registry.register_feature_class("ai_insights", AIInsightsFeature)
 
     def initialize(self):
         """Initialize all system components with error handling."""
@@ -70,10 +72,18 @@ class BioreactorSystem:
                 logger.error("Failed to initialize feed tracking")
                 return False
 
+            ai_insights = self.registry.initialize_feature("ai_insights", 
+                                                         data_collection=data_collection,
+                                                         metrics=metrics)
+            if not ai_insights:
+                logger.error("Failed to initialize AI insights")
+                return False
+
             visualization = self.registry.initialize_feature("visualization",
                                                           data_collection=data_collection,
                                                           metrics=metrics,
-                                                          feed_tracking=feed_tracking)
+                                                          feed_tracking=feed_tracking,
+                                                          ai_insights=ai_insights)
             if not visualization:
                 logger.error("Failed to initialize visualization")
                 return False

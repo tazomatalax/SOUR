@@ -7,6 +7,7 @@ features:
   visualization: true
   feed_tracking: true
   export: true
+  ai_insights: true
 
 # Database Configuration
 database:
@@ -55,3 +56,9 @@ feed:
       carbon_source: 18  # g/L
       nitrogen_source: 0  # g/L
       minerals: 0  # g/L
+
+# AI Insights Configuration
+ai_insights:
+  enabled: true
+  update_interval: 30  # seconds between updates
+  historical_window: 2  # hours of historical data to analyze
