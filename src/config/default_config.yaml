@@ -1,0 +1,57 @@
+# Bioreactor System Configuration
+
+# Feature Flags
+features:
+  data_collection: true
+  real_time_metrics: true
+  visualization: true
+  feed_tracking: true
+  export: true
+
+# Database Configuration
+database:
+  host: localhost
+  port: 5432
+  required: false
+  retry_interval: 30  # seconds
+  timeout: 10  # seconds
+
+# Metrics Configuration
+metrics:
+  update_interval: 60  # seconds
+  rolling_window: 3600  # seconds
+  do_threshold: 20.0  # percentage
+  recovery_threshold: 95.0  # percentage
+
+# Visualization
+visualization:
+  update_interval: 5  # seconds
+  plot_history: 3600  # seconds
+  dashboard_port: 8050
+
+# Logging
+logging:
+  level: INFO
+  file: bioreactor.log
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Feed Settings
+feed:
+  default_rate: 0.5  # L/hour
+  minimum_interval: 300  # seconds
+  maximum_rate: 2.0  # L/hour
+  control_feed:
+    glucose_concentration: 500  # g/L
+    toc_concentration: 200  # g/L
+    default_volume: 0.1  # L
+    components:
+      glucose: 500  # g/L
+      yeast_extract: 10  # g/L
+      minerals: 5  # g/L
+  experimental_feed:
+    toc_concentration: 18  # g/L
+    default_volume: 0.1  # L
+    components:
+      carbon_source: 18  # g/L
+      nitrogen_source: 0  # g/L
+      minerals: 0  # g/L

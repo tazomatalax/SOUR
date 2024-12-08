@@ -2,11 +2,14 @@ import os
 import sys
 import logging
 import signal
+import yaml
 from typing import Optional
 from dotenv import load_dotenv
-from data.database import DatabaseConnection
-from analysis.metrics import BioreactorMetrics
-from visualization.dashboard import BioreactorDashboard
+from core.feature_registry import FeatureRegistry
+from features.data_collection import DataCollectionFeature
+from features.metrics import MetricsFeature
+from features.feed_tracking import FeedTrackingFeature
+from features.visualization import VisualizationFeature
 
 # Configure logging
 logging.basicConfig(
@@ -21,10 +24,9 @@ logger = logging.getLogger(__name__)
 
 class BioreactorSystem:
     def __init__(self):
-        self.db: Optional[DatabaseConnection] = None
-        self.metrics: Optional[BioreactorMetrics] = None
-        self.dashboard: Optional[BioreactorDashboard] = None
+        self.registry = FeatureRegistry()
         self._setup_signal_handlers()
+        self._register_features()
 
     def _setup_signal_handlers(self):
         """Set up handlers for graceful shutdown on SIGINT and SIGTERM."""
@@ -37,6 +39,13 @@ class BioreactorSystem:
         self.cleanup()
         sys.exit(0)
 
+    def _register_features(self):
+        """Register all available features."""
+        self.registry.register_feature_class("data_collection", DataCollectionFeature)
+        self.registry.register_feature_class("metrics", MetricsFeature)
+        self.registry.register_feature_class("feed_tracking", FeedTrackingFeature)
+        self.registry.register_feature_class("visualization", VisualizationFeature)
+
     def initialize(self):
         """Initialize all system components with error handling."""
         try:
@@ -44,17 +53,32 @@ class BioreactorSystem:
             load_dotenv()
             logger.info("Environment variables loaded successfully")
 
-            # Initialize database connection (non-required mode)
-            self.db = DatabaseConnection(required=False)
+            # Initialize features in dependency order
+            data_collection = self.registry.initialize_feature("data_collection")
+            if not data_collection:
+                logger.error("Failed to initialize data collection")
+                return False
 
-            # Initialize metrics analyzer with conditional database dependency
-            self.metrics = BioreactorMetrics(self.db if self.db.is_connected else None)
-            logger.info("Metrics analyzer initialized")
+            metrics = self.registry.initialize_feature("metrics", 
+                                                     data_collection=data_collection)
+            if not metrics:
+                logger.error("Failed to initialize metrics")
+                return False
 
-            # Initialize dashboard with conditional database dependency
-            self.dashboard = BioreactorDashboard(self.db if self.db.is_connected else None)
-            logger.info("Dashboard initialized")
+            feed_tracking = self.registry.initialize_feature("feed_tracking")
+            if not feed_tracking:
+                logger.error("Failed to initialize feed tracking")
+                return False
 
+            visualization = self.registry.initialize_feature("visualization",
+                                                          data_collection=data_collection,
+                                                          metrics=metrics,
+                                                          feed_tracking=feed_tracking)
+            if not visualization:
+                logger.error("Failed to initialize visualization")
+                return False
+
+            logger.info("All features initialized successfully")
             return True
 
         except Exception as e:
@@ -66,15 +90,7 @@ class BioreactorSystem:
         """Cleanup system resources."""
         logger.info("Starting cleanup process...")
         try:
-            if self.db and self.db.is_connected:
-                # Add cleanup for database if needed
-                pass
-            if self.metrics:
-                # Add cleanup for metrics if needed
-                pass
-            if self.dashboard:
-                # Add cleanup for dashboard if needed
-                pass
+            self.registry.cleanup()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
@@ -82,9 +98,14 @@ class BioreactorSystem:
         """Run the bioreactor monitoring system."""
         try:
             logger.info("Starting bioreactor monitoring system...")
-            self.dashboard.run_server(debug=False)
+            visualization = self.registry.get_feature("visualization")
+            if visualization and visualization.is_enabled:
+                visualization.run_server(debug=False)
+            else:
+                logger.error("Visualization feature not available")
+                raise RuntimeError("Cannot start system without visualization")
         except Exception as e:
-            logger.error(f"Error running dashboard: {str(e)}")
+            logger.error(f"Error running system: {str(e)}")
             self.cleanup()
             raise
 
