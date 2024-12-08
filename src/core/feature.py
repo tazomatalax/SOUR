@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional
-from ..config.config_manager import ConfigManager
+from src.config.config_manager import ConfigManager
 
 class Feature(ABC):
     def __init__(self, feature_name: str):

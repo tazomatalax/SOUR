@@ -5,11 +5,11 @@ import signal
 import yaml
 from typing import Optional
 from dotenv import load_dotenv
-from core.feature_registry import FeatureRegistry
-from features.data_collection import DataCollectionFeature
-from features.metrics import MetricsFeature
-from features.feed_tracking import FeedTrackingFeature
-from features.visualization import VisualizationFeature
+from src.core.feature_registry import FeatureRegistry
+from src.features.data_collection import DataCollectionFeature
+from src.features.metrics import MetricsFeature
+from src.features.feed_tracking import FeedTrackingFeature
+from src.features.visualization import VisualizationFeature
 
 # Configure logging
 logging.basicConfig(
