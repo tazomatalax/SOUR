@@ -38,6 +38,12 @@ class BioreactorDashboard:
         self.db = db
         self.scientific_exporter = ScientificDataExporter()
         self.ai_analyzer = OllamaAnalyzer()  # Will use env variables for configuration
+        self.latest_metrics = {
+            "drop_rate": 0,
+            "recovery_time": 0,
+            "our": 0,
+            "sour": 0
+        }
         self.setup_layout()
         self.setup_callbacks()
         
@@ -534,7 +540,8 @@ class BioreactorDashboard:
         def update_metrics_and_detect_feeds(n):
             # Get latest data
             try:
-                with DatabaseConnection() as db:
+                db = DatabaseConnection()  # Create instance first
+                with db:  # Then use it in context manager
                     current_data = db.get_latest_data(minutes=5)
                 
                 if not current_data.empty:
@@ -733,10 +740,10 @@ class BioreactorDashboard:
             try:
                 # Get the latest DO data from the database
                 query = """
-                    SELECT timestamp, do_value 
-                    FROM reactor_data 
-                    WHERE timestamp >= DATEADD(hour, -2, GETDATE())
-                    ORDER BY timestamp DESC
+                    SELECT DateTime as timestamp, Reactor_1_DO_Value_PPM as do_value 
+                    FROM ReactorData 
+                    WHERE DateTime >= DATEADD(hour, -2, GETDATE())
+                    ORDER BY DateTime DESC
                 """
                 do_data = pd.read_sql(query, self.db.reactor_engine)
                 
@@ -771,6 +778,14 @@ class BioreactorDashboard:
                 our = self.metrics.calculate_our(do_data, event_time)
                 sour = self.metrics.calculate_sour(do_data, event_time, biomass_concentration) if biomass_concentration else None
                 
+                # Update latest metrics
+                self.latest_metrics.update({
+                    "drop_rate": drop_rate if drop_rate else 0,
+                    "recovery_time": recovery_time if recovery_time else 0,
+                    "our": our if our else 0,
+                    "sour": sour if sour else 0
+                })
+                
                 # Format output strings
                 saturation_str = f"{self.metrics.do_saturation:.2f} mg/L"
                 drop_rate_str = f"{abs(drop_rate):.3f} mg/L/s (R² = {r_squared:.2f})" if drop_rate else "No data"
@@ -782,6 +797,7 @@ class BioreactorDashboard:
                 
             except Exception as e:
                 logger.error(f"Error updating oxygen metrics: {e}")
+                self.latest_metrics = {k: 0 for k in self.latest_metrics}
                 return "Error", "Error", "Error", "Error", "Error"
         
         @self.app.callback(
@@ -803,6 +819,9 @@ class BioreactorDashboard:
                     "OUR": self.latest_metrics.get("our", 0),
                     "sOUR": self.latest_metrics.get("sour", 0)
                 }
+                
+                if all(v == 'No data' for v in metrics_data.values()):
+                    return "No live data available - Database connection is down"
                 
                 # Get current conditions
                 conditions = {
@@ -890,10 +909,10 @@ class BioreactorDashboard:
                 
                 # Get historical data for trend analysis
                 query = """
-                    SELECT timestamp, do_value 
-                    FROM reactor_data 
-                    WHERE timestamp >= DATEADD(hour, -24, GETDATE())
-                    ORDER BY timestamp ASC
+                    SELECT DateTime as timestamp, Reactor_1_DO_Value_PPM as do_value 
+                    FROM ReactorData 
+                    WHERE DateTime >= DATEADD(hour, -24, GETDATE())
+                    ORDER BY DateTime ASC
                 """
                 historical_data = pd.read_sql(query, self.db.reactor_engine)
                 

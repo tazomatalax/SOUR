@@ -26,12 +26,12 @@ class DatabaseConnection:
         
         # MS SQL Server connection string components
         self.server = os.getenv('MSSQL_SERVER', 'localhost')
-        self.database = os.getenv('MSSQL_DATABASE', 'SOUR')
-        self.username = os.getenv('MSSQL_USERNAME', 'sa')
+        self.database = os.getenv('MSSQL_DATABASE', 'dbreactor')
+        self.username = os.getenv('MSSQL_USERNAME', 'dbreactor')
         self.password = os.getenv('MSSQL_PASSWORD', '')
         self.driver = os.getenv('MSSQL_DRIVER', '{ODBC Driver 17 for SQL Server}')
         self.port = os.getenv('MSSQL_PORT', '1433')
-        self.trusted_connection = os.getenv('MSSQL_TRUSTED_CONNECTION', 'yes')
+        self.trusted_connection = os.getenv('MSSQL_TRUSTED_CONNECTION', 'no')
         
         try:
             self.conn_str = self._build_connection_string()
@@ -288,3 +288,18 @@ class DatabaseConnection:
             )
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             return df
+
+    def __enter__(self):
+        """Enter the runtime context related to this object."""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the runtime context related to this object."""
+        if self.is_connected:
+            self.reactor_engine.dispose()
+            self.dashboard_engine.dispose()
+            self.is_connected = False
+            logger.info("Database connections closed")
+        if exc_type:
+            logger.error(f"Exception occurred: {exc_value}")
+        return False  # Do not suppress exceptions
