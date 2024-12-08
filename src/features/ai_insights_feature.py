@@ -13,7 +13,7 @@ class AIInsightsFeature(Feature):
         super().__init__("ai_insights")
         self.data_collection = data_collection
         self.metrics = metrics
-        self.analyzer = OllamaAnalyzer()
+        self.analyzer = None  # Initialize in on_enable
         self.latest_insights: List[MetricInsight] = []
         self.latest_metrics = {
             "drop_rate": 0,
@@ -21,7 +21,6 @@ class AIInsightsFeature(Feature):
             "our": 0,
             "sour": 0
         }
-        self._initialize_if_enabled()
 
     def _initialize_if_enabled(self):
         """Initialize the feature if enabled in config."""
@@ -29,7 +28,7 @@ class AIInsightsFeature(Feature):
             logger.info("AI Insights feature is disabled")
             return
         logger.info("Initializing AI Insights feature")
-        self.analyzer = OllamaAnalyzer()
+        self.on_enable()
 
     def is_enabled(self) -> bool:
         """Check if the feature is enabled in config."""
@@ -92,3 +91,24 @@ class AIInsightsFeature(Feature):
         except Exception as e:
             logger.error(f"Error generating scientific report: {e}")
             return f"Error generating report: {str(e)}"
+
+    def on_enable(self):
+        """Initialize components when feature is enabled."""
+        try:
+            logger.info("Enabling AI Insights feature")
+            self.analyzer = OllamaAnalyzer()
+            return True
+        except Exception as e:
+            logger.error(f"Error enabling AI Insights feature: {e}")
+            return False
+
+    def on_disable(self):
+        """Cleanup when feature is disabled."""
+        try:
+            logger.info("Disabling AI Insights feature")
+            self.analyzer = None
+            self.latest_insights = []
+            return True
+        except Exception as e:
+            logger.error(f"Error disabling AI Insights feature: {e}")
+            return False
