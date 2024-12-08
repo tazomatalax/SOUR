@@ -100,7 +100,7 @@ class BioreactorSystem:
             logger.info("Starting bioreactor monitoring system...")
             visualization = self.registry.get_feature("visualization")
             if visualization and visualization.is_enabled:
-                visualization.run_server(debug=False)
+                visualization.run()
             else:
                 logger.error("Visualization feature not available")
                 raise RuntimeError("Cannot start system without visualization")
