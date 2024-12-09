@@ -11,6 +11,7 @@ from src.features.metrics import MetricsFeature
 from src.features.feed_tracking import FeedTrackingFeature
 from src.features.visualization import VisualizationFeature
 from src.features.ai_insights_feature import AIInsightsFeature
+from src.api.api_routes import create_api_app
 
 # Configure logging
 logging.basicConfig(
@@ -87,6 +88,18 @@ class BioreactorSystem:
             if not visualization:
                 logger.error("Failed to initialize visualization")
                 return False
+
+            # Create and run Flask API app
+            api_app = create_api_app(
+                data_collection=data_collection,
+                metrics=metrics,
+                feed_tracking=feed_tracking,
+                ai_insights=ai_insights,
+                visualization=visualization
+            )
+            
+            # Run the Flask app
+            api_app.run(host='0.0.0.0', port=5000)
 
             logger.info("All features initialized successfully")
             return True

@@ -28,6 +28,10 @@ python-dateutil>=2.8.2
 openpyxl>=3.1.0
 xlsxwriter>=3.1.0
 
+# Web Framework
+Flask==3.0.2
+Flask-CORS==4.0.0
+
 # Logging and Utilities
 coloredlogs>=15.0.1
 humanfriendly>=10.0
