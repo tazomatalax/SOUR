@@ -1,3 +1,12 @@
 {
-    "events": []
+    "events": [
+        {
+            "timestamp": "2024-12-10T14:04:12.687528",
+            "feed_type": "auto_detected",
+            "volume": 9.999847412109374e-05,
+            "components": {},
+            "operator": "AUTO_DETECT",
+            "notes": "Automatically detected feed event. Reactor weight change: 0.10g, Feed bottle change: -0.10g"
+        }
+    ]
 }

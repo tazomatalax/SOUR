@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Optional
 import json
 from pathlib import Path
@@ -12,6 +12,7 @@ class FeedEventLogger:
         self.log_file.parent.mkdir(exist_ok=True)
         if not self.log_file.exists():
             self._initialize_log_file()
+        self.events = []
 
     def _initialize_log_file(self):
         """Initialize an empty log file with proper structure."""
@@ -42,6 +43,7 @@ class FeedEventLogger:
             logger.info(f"Feed event logged successfully: {feed_type}")
         except Exception as e:
             logger.error(f"Error logging feed event: {e}")
+        self.events.append(event)
 
     def get_events(self, start_time: Optional[str] = None, 
                   end_time: Optional[str] = None,
@@ -64,3 +66,14 @@ class FeedEventLogger:
         except Exception as e:
             logger.error(f"Error retrieving feed events: {e}")
             return []
+
+    def get_recent_events(self, hours: int = 24) -> list:
+        """Get feed events from the last N hours."""
+        cutoff = datetime.now() - timedelta(hours=hours)
+        return [e for e in self.events if e['timestamp'] >= cutoff]
+        
+    def get_latest_feed_event(self):
+        """Get the most recent feed event."""
+        if not self.events:
+            return None
+        return max(self.events, key=lambda x: x['timestamp'])

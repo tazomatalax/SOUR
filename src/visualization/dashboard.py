@@ -538,118 +538,50 @@ class BioreactorDashboard:
             [Input('graph-update', 'n_intervals')]
         )
         def update_metrics_and_detect_feeds(n):
-            # Get latest data
             try:
-                db = DatabaseConnection()  # Create instance first
-                with db:  # Then use it in context manager
+                db = DatabaseConnection()
+                with db:
                     current_data = db.get_latest_data(minutes=5)
                 
-                if not current_data.empty:
-                    # Detect feed events
-                    detected_events = self.feed_detector.detect_feed_events(current_data)
+                    if not current_data.empty and 'timestamp' in current_data.columns:
+                        # Detect feed events and automatically log them
+                        detected_events = self.feed_detector.detect_feed_events(
+                            current_data, 
+                            feed_logger=self.feed_logger
+                        )
+                        
                     
-                    # Create feed status message
-                    if detected_events:
-                        latest_event = detected_events[-1]
-                        feed_status = html.Div([
-                            html.H5(" Feed Detected!", className="text-success"),
-                            html.P([
-                                f"Time: {pd.to_datetime(latest_event['timestamp']).strftime('%H:%M:%S')}", html.Br(),
-                                f"Type: {latest_event['feed_type']}", html.Br(),
-                                f"Volume: {latest_event['volume']*1000:.0f}mL"
-                            ])
-                        ])
-                    else:
-                        feed_status = html.Div("No recent feed events detected", className="text-muted")
+                    return html.Div("No data available"), html.Div("Feed detection unavailable", className="text-muted")
                     
-                    # Create metrics display
-                    metrics = html.Div([
-                        dbc.Row([
-                            dbc.Col([
-                                html.H5("MFC1"),
-                                html.P(f"Set Point: {current_data['LB_MFC_1_SP'].iloc[-1]:.1f} L/min"),
-                                html.P(f"Process Value: {current_data['LB_MFC_1_PV'].iloc[-1]:.1f} L/min")
-                            ], width=4),
-                            dbc.Col([
-                                html.H5("DO"),
-                                html.P(f"Value: {current_data['Reactor_1_DO_Value_PPM'].iloc[-1]:.1f} mg/L"),
-                                html.P(f"Temperature: {current_data['Reactor_1_DO_T_Value'].iloc[-1]:.1f}°C")
-                            ], width=4),
-                            dbc.Col([
-                                html.H5("pH"),
-                                html.P(f"Value: {current_data['Reactor_1_PH_Value'].iloc[-1]:.2f}"),
-                                html.P(f"Temperature: {current_data['Reactor_1_PH_T_Value'].iloc[-1]:.1f}°C")
-                            ], width=4)
-                        ], className="mb-3"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.H5("Feed Status"),
-                                html.P(f"Pump Time On: {current_data['R1_Perastaltic_1_Time'].iloc[-1]:.0f}s"),
-                                html.P(f"Pump Time Off: {current_data['R1_Perastaltic_1_Time_off'].iloc[-1]:.0f}s")
-                            ], width=4),
-                            dbc.Col([
-                                html.H5("Weight"),
-                                html.P(f"Reactor: {current_data['R1_Weight_Bal'].iloc[-1]:.1f}g"),
-                                html.P(f"Feed Bottle: {current_data['R2_Weight_Bal'].iloc[-1]:.1f}g")
-                            ], width=4)
-                        ])
-                    ])
-                    
-                    return metrics, feed_status
-                    
-                return html.Div("No data available"), html.Div("Feed detection unavailable", className="text-muted")
-                
             except Exception as e:
                 logger.error(f"Error updating metrics and detecting feeds: {e}")
                 return html.Div(f"Error: {str(e)}"), html.Div("Feed detection error", className="text-danger")
-        
+
         @self.app.callback(
             Output('main-graph', 'figure'),
             [Input('graph-update', 'n_intervals')]
         )
         def update_graph(n):
-            # Create figure with secondary y-axis
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            try:
+                with self.db:
+                    data = self.db.get_latest_data(minutes=30)
+                    if not data.empty:
+                        # Rename columns for plot
+                        plot_data = data.rename(columns={
+                            'DateTime': 'timestamp',
+                            'Reactor_1_DO_Value_PPM': 'do_value',
+                            'Reactor_1_PH_Value': 'ph_value',
+                            'Reactor_1_DO_T_Value': 'temperature',
+                            'R1_Weight_Bal': 'reactor_weight',
+                            'R2_Weight_Bal': 'feed_bottle_weight'
+                        })
+                        recent_events = self.feed_logger.get_recent_events()
+                        return self.create_main_plot(plot_data, recent_events)
+            except Exception as e:
+                logger.error(f"Error updating graph: {e}")
             
-            # Here you would fetch data from SQL database
-            # Example structure:
-            # timestamps = [...]
-            # do_values = [...]
-            # ph_values = [...]
-            
-            # Add DO trace
-            fig.add_trace(
-                go.Scatter(
-                    name='DO',
-                    x=[],  # timestamps
-                    y=[],  # do_values
-                    mode='lines',
-                    line=dict(color='blue')
-                ),
-                secondary_y=False
-            )
-            
-            # Add pH trace
-            fig.add_trace(
-                go.Scatter(
-                    name='pH',
-                    x=[],  # timestamps
-                    y=[],  # ph_values
-                    mode='lines',
-                    line=dict(color='red')
-                ),
-                secondary_y=True
-            )
-            
-            fig.update_layout(
-                height=600,
-                title="Process Monitoring",
-                xaxis_title="Time",
-                yaxis_title="DO (mg/L)",
-                yaxis2_title="pH"
-            )
-            
-            return fig
+            # Return empty figure if there's an error or no data
+            return make_subplots(specs=[[{"secondary_y": True}]])
             
         @self.app.callback(
             Output("feed-status", "children"),
@@ -740,13 +672,17 @@ class BioreactorDashboard:
             try:
                 # Get the latest DO data from the database
                 query = """
-                    SELECT DateTime as timestamp, Reactor_1_DO_Value_PPM as do_value 
+                    SELECT DateTime, Reactor_1_DO_Value_PPM as do_value 
                     FROM ReactorData 
                     WHERE DateTime >= DATEADD(hour, -2, GETDATE())
                     ORDER BY DateTime DESC
                 """
                 do_data = pd.read_sql(query, self.db.reactor_engine)
                 
+                # Rename DateTime column to timestamp for consistency
+                do_data = do_data.rename(columns={'DateTime': 'timestamp'})
+                
+                # Rest of the function remains the same
                 # Update DO saturation based on recent data
                 self.metrics.update_do_saturation(do_data)
                 
@@ -982,4 +918,4 @@ class BioreactorDashboard:
     
     def run_server(self, debug=True, port=8050):
         """Start the Dash server."""
-        self.app.run_server(debug=debug, port=port)
+        self.app.run_server(debug=debug, port=8050)

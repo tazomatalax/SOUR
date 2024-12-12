@@ -124,24 +124,19 @@ class DatabaseConnection:
         """Fetch the latest data from the reactor database."""
         query = text("""
             SELECT 
-                DateTime,
-                -- MFC1 values
+                DateTime as timestamp,  -- Explicitly name as timestamp
+                -- Rest of columns
                 LB_MFC_1_SP,
                 LB_MFC_1_PV,
-                -- Reactor 1 DO
                 Reactor_1_DO_Value_PPM,
                 Reactor_1_DO_T_Value,
-                -- Reactor 1 pH
                 Reactor_1_PH_Value,
                 Reactor_1_PH_T_Value,
-                -- Weights
                 R1_Weight_Bal,
                 R2_Weight_Bal,
-                -- Pump 1 settings
                 LB_Perastaltic_P_1,
                 R1_Perastaltic_1_Time,
                 R1_Perastaltic_1_Time_off,
-                -- Speed and torque
                 Reactor_1_Speed_RPM,
                 Reactor_1_Torque_Real
             FROM ReactorData
@@ -152,9 +147,11 @@ class DatabaseConnection:
         try:
             with self.reactor_engine.connect() as conn:
                 df = pd.read_sql_query(query, conn, params={'minutes': minutes})
-            return df
+                # Ensure timestamp is datetime type
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                return df
         except Exception as e:
-            print(f"Error fetching data: {e}")
+            logger.error(f"Error fetching data: {e}")
             return pd.DataFrame()
 
     def get_current_values(self) -> Dict:
